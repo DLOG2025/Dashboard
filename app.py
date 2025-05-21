@@ -9,215 +9,140 @@ st.title("🚓 DASHBOARD_VIATURAS_DLOG - DLOG")
 
 # URLs dos arquivos no GitHub
 URL_ABAST = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/Abastecimentos_Consolidados.xlsx"
-URL_FROTA_BASE = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/Frota_Master_Base.xlsx"
 URL_FROTA_ENRICHED = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/Frota_Master_Enriched.xlsx"
 URL_OPM_MUNICIPIOS = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/OPM_Municipios_Enriched.xlsx"
 
 @st.cache_data
-# Função para carregar dados uma única vez
+# Carrega dados apenas uma vez
 def load_data():
     df_abast = pd.read_excel(URL_ABAST)
-    df_frota_base = pd.read_excel(URL_FROTA_BASE)
-    df_frota_enriched = pd.read_excel(URL_FROTA_ENRICHED)
+    df_frota = pd.read_excel(URL_FROTA_ENRICHED)
     df_opm = pd.read_excel(URL_OPM_MUNICIPIOS)
-    return df_abast, df_frota_base, df_frota_enriched, df_opm
+    return df_abast, df_frota, df_opm
 
-df_abast, df_frota_base, df_frota_enriched, df_opm = load_data()
+# Carregamento
+df_abast, df_frota, df_opm = load_data()
 
-# Padronizar PLACA
-for df in (df_abast, df_frota_base, df_frota_enriched):
+# Padroniza PLACA em todos os dataframes
+for df in (df_abast, df_frota):
     df['PLACA'] = df['PLACA'].astype(str).str.upper().str.replace('-', '').str.replace(' ', '')
 
-# Sidebar: filtros básicos
+# Sidebar de filtros
 st.sidebar.header("🎯 Filtros")
 unidades = st.sidebar.multiselect(
-    "Selecione Unidades:", df_abast['UNIDADE'].unique(),
-    default=df_abast['UNIDADE'].unique()
+    "Selecione Unidades:", df_abast['UNIDADE'].unique(), default=df_abast['UNIDADE'].unique()
 )
 combustiveis = st.sidebar.multiselect(
     "Selecione Combustíveis:", df_abast['COMBUSTIVEL_DOMINANTE'].unique(),
     default=df_abast['COMBUSTIVEL_DOMINANTE'].unique()
 )
 
-# Aplicar filtros ao df_abast
+# Aplica filtros de unidade e combustível
 mask = (
     df_abast['UNIDADE'].isin(unidades) &
     df_abast['COMBUSTIVEL_DOMINANTE'].isin(combustiveis)
 )
-df_abast_f = df_abast[mask].copy()
+df = df_abast[mask].copy()
 
-# Merge com dados de frota enriquecida
-cols_merge = ['PLACA', 'Frota', 'PADRAO', 'CARACTERIZACAO', 'CUSTO_PADRAO_MENSAL']
-df = df_abast_f.merge(
-    df_frota_enriched[cols_merge],
+# Merge com frota para obter tipo, padrão e custo
+df = df.merge(
+    df_frota[['PLACA', 'Frota', 'PADRAO', 'CARACTERIZACAO', 'CUSTO_PADRAO_MENSAL']],
     on='PLACA', how='left'
 )
-# Preenchimento de valores nulos
-df['Frota'] = df['Frota'].fillna('NÃO ENCONTRADO')
-df['PADRAO'] = df['PADRAO'].fillna('N/D')
-df['CARACTERIZACAO'] = df['CARACTERIZACAO'].fillna('N/D')
+# Preenche valores ausentes
+for col, fill in [('Frota','NÃO ENCONTRADO'), ('PADRAO','N/D'), ('CARACTERIZACAO','N/D')]:
+    df[col] = df[col].fillna(fill)
 df['CUSTO_PADRAO_MENSAL'] = df['CUSTO_PADRAO_MENSAL'].fillna(0)
 
-# Calcular custo total do veículo (combustível + locação)
+# Calcula custo total do veículo
 df['CUSTO_TOTAL_VEICULO'] = df['VALOR_TOTAL'] + df['CUSTO_PADRAO_MENSAL']
 
-# Número de OPMs únicos por viatura
-df['NUM_OPMS'] = df.groupby('PLACA')['UNIDADE'].transform('nunique')
+# Conta OPMs distintos por viatura
+df['OPMs_Únicas'] = df.groupby('PLACA')['UNIDADE'].transform('nunique')
 
-# Criar abas
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🔎 Visão Geral", "🚘 Distribuição de Frota", "📍 OPMs & Municípios", "📋 Detalhamento"
-])
+# Cria abas
+tabs = st.tabs(["🔎 Visão Geral", "🚘 Frota por OPM", "📍 OPMs & Municípios", "📋 Detalhamento"])
 
-with tab1:
+with tabs[0]:  # Visão Geral
     st.subheader("✨ Indicadores Principais")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📝 Registros", f"{len(df):,}")
-    c2.metric("🚔 Viaturas Únicas", df['PLACA'].nunique())
-    c3.metric("⛽ Total Litros", f"{df['TOTAL_LITROS'].sum():,.0f} L")
-    c4.metric(
-        "💰 Gasto Total (R$)",
-        f"R$ {df['VALOR_TOTAL'].sum():,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
-    )
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Registros", f"{len(df):,}")
+    r2.metric("Viaturas Únicas", df['PLACA'].nunique())
+    r3.metric("Total Litros", f"{df['TOTAL_LITROS'].sum():,.0f} L")
+    r4.metric("Gasto Total (R$)", f"R$ {df['VALOR_TOTAL'].sum():,.2f}")
     st.divider()
-    fig1 = px.bar(
-        df.groupby('UNIDADE')['TOTAL_LITROS']
-          .sum()
-          .reset_index()
-          .sort_values('TOTAL_LITROS', ascending=False),
+    fig = px.bar(
+        df.groupby('UNIDADE')['TOTAL_LITROS'].sum().reset_index(),
         x='TOTAL_LITROS', y='UNIDADE', orientation='h',
         labels={'TOTAL_LITROS':'Litros','UNIDADE':'Unidade'},
-        title='Litros por Unidade'
+        title='Consumo por Unidade'
     )
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-with tab2:
-    st.subheader("🚘 Distribuição de Frota por OPM e Tipo")
-    dist = (
-        df_frota_enriched.groupby(['OPM', 'Frota'])
-                          .size()
-                          .reset_index(name='Contagem')
+with tabs[1]:  # Distribuição de Frota por OPM
+    st.subheader("🚘 Distribuição da Frota por OPM e Caracterização")
+    dist = df_frota.groupby(['OPM', 'Frota']).size().reset_index(name='Contagem')
+    fig = px.bar(
+        dist, x='OPM', y='Contagem', color='Frota', barmode='group',
+        labels={'Contagem':'# Veículos','OPM':'Batalhão'},
+        title='Veículos por OPM e Tipo'
     )
-    fig2 = px.treemap(
-        dist, path=['OPM', 'Frota'], values='Contagem',
-        title='Distribuição da Frota por OPM e Tipo'
+    st.plotly_chart(fig, use_container_width=True)
+    st.divider()
+    st.subheader("📊 Caracterização por OPM")
+    char = df_frota.groupby(['OPM', 'CARACTERIZACAO']).size().reset_index(name='Contagem')
+    fig2 = px.bar(
+        char, x='OPM', y='Contagem', color='CARACTERIZACAO', barmode='stack',
+        labels={'Contagem':'# Veículos','OPM':'Batalhão'},
+        title='Caracterização da Frota'
     )
     st.plotly_chart(fig2, use_container_width=True)
-    st.divider()
-    st.subheader("📊 Caracterização da Frota por OPM")
-    char = (
-        df_frota_enriched.groupby(['OPM', 'CARACTERIZACAO'])
-                          .size()
-                          .reset_index(name='Contagem')
-    )
-    fig3 = px.bar(
-        char, x='OPM', y='Contagem', color='CARACTERIZACAO', barmode='group',
-        title='Caracterização da Frota por OPM'
-    )
-    st.plotly_chart(fig3, use_container_width=True)
 
-with tab3:
+with tabs[2]:  # OPMs & Municípios
     st.subheader("📍 OPMs & Municípios")
-    interior = df_opm[
-        (df_opm['TIPO_LOCAL'].str.lower() == 'município') &
-        (df_opm['MUNICÍPIO'] != 'Maceió')
-    ]
-    interior_count = (
-        interior.groupby('UNIDADE')['MUNICÍPIO']
-                .nunique()
-                .reset_index(name='Municípios')
-    )
-    bairros = df_opm[
-        (df_opm['TIPO_LOCAL'].str.lower() == 'bairro') &
-        (df_opm['MUNICÍPIO_REFERÊNCIA'] == 'Maceió')
-    ]
-    bairros_count = (
-        bairros.groupby('UNIDADE')['LOCAL']
-               .nunique()
-               .reset_index(name='Bairros')
-    )
-    vehicles = (
-        df_frota_enriched.groupby('OPM')['PLACA']
-                           .nunique()
-                           .reset_index(name='Viaturas')
-    )
-    opm_summary = (
-        vehicles
-        .merge(interior_count, on='UNIDADE', how='left')
-        .merge(bairros_count, on='UNIDADE', how='left')
-    )
-    opm_summary[['Municípios','Bairros']] = (
-        opm_summary[['Municípios','Bairros']]
-        .fillna(0)
-        .astype(int)
-    )
-    opm_summary['V/Município'] = (
-        (opm_summary['Viaturas'] / opm_summary['Municípios'])
-        .round(2)
-        .replace(np.inf, 0)
-    )
-    opm_summary['V/Bairro'] = (
-        (opm_summary['Viaturas'] / opm_summary['Bairros'])
-        .round(2)
-        .replace(np.inf, 0)
-    )
-    st.dataframe(
-        opm_summary.rename(columns={'UNIDADE':'OPM'}),
-        use_container_width=True
-    )
+    # Municípios do interior (exclui Maceió)
+    interior = df_opm[(df_opm['TIPO_LOCAL'].str.lower()=='município') & (df_opm['MUNICÍPIO']!='Maceió')]
+    inter = interior.groupby('UNIDADE')['MUNICÍPIO'].nunique().reset_index(name='Municípios')
+    inter.rename(columns={'UNIDADE':'OPM'}, inplace=True)
+    # Bairros de Maceió
+    bairros = df_opm[(df_opm['TIPO_LOCAL'].str.lower()=='bairro') & (df_opm['MUNICÍPIO_REFERÊNCIA']=='Maceió')]
+    bair = bairros.groupby('UNIDADE')['LOCAL'].nunique().reset_index(name='Bairros')
+    bair.rename(columns={'UNIDADE':'OPM'}, inplace=True)
+    # Viaturas por OPM
+    veh = df_frota.groupby('OPM')['PLACA'].nunique().reset_index(name='Viaturas')
+    # Combina
+    summary = veh.merge(inter, on='OPM', how='left').merge(bair, on='OPM', how='left')
+    summary[['Municípios','Bairros']] = summary[['Municípios','Bairros']].fillna(0).astype(int)
+    summary['V/ Município'] = (summary['Viaturas']/summary['Municípios']).replace(np.inf,0).round(2)
+    summary['V/ Bairro'] = (summary['Viaturas']/summary['Bairros']).replace(np.inf,0).round(2)
+    st.dataframe(summary, use_container_width=True)
 
-with tab4:
-    st.subheader("🏅 Ranking e Detalhamento de Viaturas")
-    # Cálculo de ranking total e top 20
-    ranking = (
-        df.groupby('PLACA')['TOTAL_LITROS']
-          .sum()
-          .sort_values(ascending=False)
-          .reset_index(name='Litros')
-    )
-    top20 = ranking.head(20)
-
-    # Exibir ranking completo
-    st.subheader("📃 Ranking Completo de Viaturas por Consumo")
-    st.dataframe(ranking, use_container_width=True)
-
+with tabs[3]:  # Detalhamento
+    st.subheader("📋 Ranking Completo de Viaturas")
+    rank = df.groupby('PLACA')['TOTAL_LITROS'].sum().reset_index(name='Litros').sort_values('Litros', ascending=False)
+    st.dataframe(rank, use_container_width=True)
     st.divider()
-    # Exibir top 20
-    st.subheader("🔝 Top 20 Viaturas que Mais Consumiram")
-    st.dataframe(top20, use_container_width=True)
-
+    st.subheader("🔝 Top 20 Viaturas por Consumo")
+    st.dataframe(rank.head(20), use_container_width=True)
     st.divider()
-    # Viaturas múltiplas OPMs
-    st.subheader("🚨 Viaturas Abastecidas em Múltiplas OPMs")
-    multi = (
-        df.groupby('PLACA')['UNIDADE']
-          .nunique()
-          .reset_index(name='OPMs Únicas')
-    )
-    multi = multi[multi['OPMs Únicas'] > 1]
+    st.subheader("🚨 Viaturas em Múltiplas OPMs")
+    multi = df.groupby('PLACA')['UNIDADE'].nunique().reset_index(name='OPMs Únicas')
+    multi = multi[multi['OPMs Únicas']>1]
     if not multi.empty:
         st.dataframe(multi, use_container_width=True)
     else:
-        st.markdown("Nenhuma viatura abasteceu em mais de uma OPM.")
-
+        st.write("Nenhuma viatura abasteceu em mais de uma OPM.")
     st.divider()
-    # Tabela detalhada
-    st.subheader("📋 Detalhamento de Abastecimentos")
-    display_cols = [
-        'PLACA', 'UNIDADE', 'Combustível', 'Litros', 'Valor R$',
-        'Custo Locação R$', 'Custo Total R$', 'Frota', 'Padrão',
-        'Caracterização', 'OPMs Únicas'
-    ]
-    df_display = df.rename(columns={
-        'COMBUSTIVEL_DOMINANTE':'Combustível',
-        'TOTAL_LITROS':'Litros',
-        'VALOR_TOTAL':'Valor R$',
-        'CUSTO_PADRAO_MENSAL':'Custo Locação R$',
-        'CUSTO_TOTAL_VEICULO':'Custo Total R$',
-        'NUM_OPMS':'OPMs Únicas',
-        'PADRAO':'Padrão',
-        'CARACTERIZACAO':'Caracterização'
-    })[display_cols]
-    st.dataframe(df_display, use_container_width=True, height=450)
+    st.subheader("📂 Tabela de Detalhamento")
+    df_disp = df.rename(columns={
+        'COMBUSTIVEL_DOMINANTE':'Combustível', 'TOTAL_LITROS':'Litros',
+        'VALOR_TOTAL':'Valor R$', 'CUSTO_PADRAO_MENSAL':'Custo Locação R$',
+        'CUSTO_TOTAL_VEICULO':'Custo Total R$', 'OPMs_Únicas':'OPMs Únicas',
+        'PADRAO':'Padrão', 'CARACTERIZACAO':'Caracterização'
+    })[[
+        'PLACA','UNIDADE','Combustível','Litros','Valor R$','Custo Locação R$',
+        'Custo Total R$','Frota','Padrão','Caracterização','OPMs Únicas'
+    ]]
+    st.table(df_disp)
 
-st.info("🔧 Use os filtros laterais para ajustar a visualização.")
+st.info("🔧 Ajuste os filtros laterais conforme necessário.")
