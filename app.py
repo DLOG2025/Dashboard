@@ -40,6 +40,7 @@ def load_data(repo_url: str) -> pd.DataFrame:
         df = df.rename(columns={placa_col: 'Placa'})
         df['Placa'] = df['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
         return df
+
     ab = detect_and_clean_plate(ab)
     fr = detect_and_clean_plate(fr)
 
@@ -56,7 +57,7 @@ def load_data(repo_url: str) -> pd.DataFrame:
     df = df.merge(op[['OPM', 'Latitude', 'Longitude']], on='OPM', how='left')
 
     # Detecta coluna de data
-t    date_col = next((c for c in df.columns if 'data' in c.lower()), None)
+    date_col = next((c for c in df.columns if 'data' in c.lower()), None)
     if date_col is None:
         raise KeyError("Não foi encontrada coluna de data.")
     df['Data'] = pd.to_datetime(df[date_col], errors='coerce')
