@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import pydeck as pdk
 from urllib.parse import urlparse
 
 # Constrói URLs raw do GitHub
@@ -16,11 +15,13 @@ def build_raw_url(repo_url: str, filename: str) -> str:
 
 @st.cache_data(ttl=3600)
 def load_data(repo_url: str) -> pd.DataFrame:
+    # Nomes dos arquivos no repositório
     files = {
         'abast': 'Abastecimentos_Consolidados.xlsx',
         'frota': 'Frota_Master_Enriched.xlsx',
         'opm':   'OPM_Municipios_Enriched.xlsx'
     }
+    # Carrega planilhas
     try:
         url_abast = build_raw_url(repo_url, files['abast'])
         url_frota = build_raw_url(repo_url, files['frota'])
@@ -29,121 +30,120 @@ def load_data(repo_url: str) -> pd.DataFrame:
         fr = pd.read_excel(url_frota)
         op = pd.read_excel(url_opm)
     except Exception as e:
-        st.error(f"Falha ao carregar os arquivos do GitHub: {e}")
+        st.error(f"Falha ao carregar arquivos: {e}")
         st.stop()
 
-    # Detecta e padroniza placa
-    def detect_and_clean_plate(df: pd.DataFrame) -> pd.DataFrame:
-        placa_col = next((c for c in df.columns if 'placa' in c.lower()), None)
-        if placa_col is None:
-            raise KeyError("Não foi encontrada coluna de placa.")
-        df = df.rename(columns={placa_col: 'Placa'})
-        df['Placa'] = df['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
-        return df
+    # Padroniza placa e OPM no arquivo de abastecimento
+    placa_col_ab = next((c for c in ab.columns if 'placa' in c.lower()), None)
+    unit_col_ab = next((c for c in ab.columns if 'unidade' in c.lower()), None)
+    if not placa_col_ab or not unit_col_ab:
+        st.error("Arquivo de abastecimento deve ter colunas PLACA e UNIDADE")
+        st.stop()
+    ab = ab.rename(columns={placa_col_ab: 'Placa', unit_col_ab: 'OPM'})
+    ab['Placa'] = ab['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
 
-    ab = detect_and_clean_plate(ab)
-    fr = detect_and_clean_plate(fr)
+    # Unifica nomes de métricas de volume e custo
+    if 'TOTAL_LITROS' in ab.columns and 'VALOR_TOTAL' in ab.columns:
+        ab = ab.rename(columns={'TOTAL_LITROS': 'TOTAL_L', 'VALOR_TOTAL': 'Custo'})
+    else:
+        st.error("Colunas TOTAL_LITROS e VALOR_TOTAL não encontradas em Abastecimentos_Consolidados")
+        st.stop()
 
-    # Une abastecimentos e frota
+    # Padroniza placa no arquivo de frota
+    placa_col_fr = next((c for c in fr.columns if 'placa' in c.lower()), None)
+    if not placa_col_fr:
+        st.error("Arquivo de frota deve ter coluna PLACA")
+        st.stop()
+    fr = fr.rename(columns={placa_col_fr: 'Placa'})
+    fr['Placa'] = fr['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
+
+    # Padroniza OPM no arquivo de municípios
+    unit_col_op = next((c for c in op.columns if 'unidade' in c.lower()), None)
+    if not unit_col_op:
+        st.error("Arquivo de OPM deve ter coluna UNIDADE")
+        st.stop()
+    op = op.rename(columns={unit_col_op: 'OPM'})
+    # Detecta coluna de município
+    muni_col = next((c for c in op.columns if 'munic' in c.lower()), None)
+    if muni_col:
+        op = op.rename(columns={muni_col: 'Municipio'})
+    # Merge de dados
     df = ab.merge(fr, on='Placa', how='left')
-
-    # Detecta colunas de OPM, latitude e longitude
-    opm_col = next((c for c in op.columns if 'opm' in c.lower()), None)
-    lat_col = next((c for c in op.columns if 'lat' in c.lower()), None)
-    lon_col = next((c for c in op.columns if 'lon' in c.lower()), None)
-    if not opm_col or not lat_col or not lon_col:
-        raise KeyError("Arquivo de OPM precisa ter colunas de OPM, latitude e longitude.")
-    op = op.rename(columns={opm_col: 'OPM', lat_col: 'Latitude', lon_col: 'Longitude'})
-    df = df.merge(op[['OPM', 'Latitude', 'Longitude']], on='OPM', how='left')
-
-    # Detecta coluna de data
-    date_col = next((c for c in df.columns if 'data' in c.lower()), None)
-    if date_col is None:
-        raise KeyError("Não foi encontrada coluna de data.")
-    df['Data'] = pd.to_datetime(df[date_col], errors='coerce')
-    df = df.dropna(subset=['Data'])
+    if 'Municipio' in op.columns:
+        df = df.merge(op[['OPM', 'Municipio']], on='OPM', how='left')
     return df
 
 # Função principal
 def main():
-    st.set_page_config(
-        page_title="Dashboard PMAL - Combustível",
-        page_icon="⛽️",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    st.set_page_config(page_title="Dashboard PMAL - Combustível", page_icon="⛽️", layout="wide")
+    st.title("📊 Dashboard 100% Online - Abastecimento PMAL")
 
-    st.sidebar.header("Configuração")
-    repo_url = st.sidebar.text_input(
-        "🔗 URL do repositório GitHub:",
-        value="https://github.com/DLOG2025/Dashboard"
-    )
+    # URL do repo GitHub
+    repo_url = st.sidebar.text_input("🔗 URL do repositório GitHub:", "https://github.com/DLOG2025/Dashboard")
     if not repo_url:
-        st.sidebar.warning("Informe a URL do seu repositório GitHub.")
+        st.sidebar.warning("Informe a URL do repositório GitHub.")
         return
-
     df = load_data(repo_url)
 
-    # Filtros de data e OPM
+    # Filtros
     st.sidebar.header("Filtros")
-    min_date, max_date = df['Data'].min(), df['Data'].max()
-    data_selec = st.sidebar.date_input(
-        "Período de Abastecimento", [min_date, max_date],
-        min_value=min_date, max_value=max_date
-    )
-    df = df[(df['Data'] >= pd.to_datetime(data_selec[0])) & (df['Data'] <= pd.to_datetime(data_selec[1]))]
-
+    # Período: se existir coluna Data, usa; senão ignora
+    if 'Data' in df.columns:
+        min_date, max_date = df['Data'].min(), df['Data'].max()
+        date_sel = st.sidebar.date_input("Período de Abastecimento", [min_date, max_date], min_value=min_date, max_value=max_date)
+        df = df[(df['Data'] >= pd.to_datetime(date_sel[0])) & (df['Data'] <= pd.to_datetime(date_sel[1]))]
+    # OPM
     opms = sorted(df['OPM'].dropna().unique())
     sel_opm = st.sidebar.multiselect("Selecione OPM(s)", opms, default=opms)
     df = df[df['OPM'].isin(sel_opm)]
 
-    # Abas do dashboard
-    tab1, tab2, tab3, tab4 = st.tabs(["Visão Geral", "Série Temporal", "Geoespacial", "Anomalias"])
-    # Identifica colunas de volume de combustível
-    sum_cols = [c for c in df.columns if any(x in c.lower() for x in ['gasolina','álcool','alcool','diesel'])]
+    # Abas
+    tab1, tab2, tab3, tab4 = st.tabs(["Visão Geral", "Série Temporal", "Distribuição", "Geoespacial/Outros"])
 
+    # KPI
     with tab1:
         st.subheader("KPIs Principais")
-        total_l = df[sum_cols].sum().sum()
-        total_custo = df['Custo'].sum() if 'Custo' in df.columns else np.nan
-        media_viatura = df.groupby('Placa')[sum_cols].sum().mean().sum()
+        total_l = df['TOTAL_L'].sum()
+        total_custo = df['Custo'].sum()
+        media_placa = df.groupby('Placa')['TOTAL_L'].sum().mean()
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Litros (L)", f"{total_l:,.0f}")
         c2.metric("Total Gasto (R$)", f"R$ {total_custo:,.2f}")
-        c3.metric("Média por Viatura (L)", f"{media_viatura:,.1f}")
-        st.divider()
-        st.subheader("Distribuição de Combustíveis")
-        df_kpi = df[sum_cols].sum().reset_index().rename(columns={'index': 'Combustível', 0: 'Litros'})
-        st.plotly_chart(px.pie(df_kpi, names='Combustível', values='Litros', hole=0.4), use_container_width=True)
+        c3.metric("Média por Viatura (L)", f"{media_placa:,.1f}")
 
+    # Série Temporal
     with tab2:
-        st.subheader("Consumo Mensal")
-        df_m = df.groupby(pd.Grouper(key='Data', freq='M'))[sum_cols].sum().reset_index()
-        st.plotly_chart(px.line(df_m, x='Data', y=sum_cols, markers=True), use_container_width=True)
+        st.subheader("Consumo por Arquivo (Mês)")
+        if 'ARQUIVO' in df.columns:
+            s = df.groupby('ARQUIVO')['TOTAL_L'].sum().reset_index()
+            fig2 = px.bar(s, x='ARQUIVO', y='TOTAL_L', labels={'TOTAL_L':'Litros'})
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.warning("Arquivo de abastecimentos não contém coluna 'ARQUIVO'.")
 
+    # Distribuição de combustível
     with tab3:
-        st.subheader("Mapa de Heatmap por OPM")
-        midpoint = (df['Latitude'].mean(), df['Longitude'].mean())
-        st.pydeck_chart(pdk.Deck(
-            map_style='mapbox://styles/mapbox/light-v9',
-            initial_view_state=pdk.ViewState(latitude=midpoint[0], longitude=midpoint[1], zoom=6),
-            layers=[pdk.Layer('HeatmapLayer', data=df, get_position='[Longitude, Latitude]', radius=20000, opacity=0.6)]
-        ))
+        st.subheader("Distribuição por Tipo de Combustível")
+        if 'COMBUSTIVEL_DOMINANTE' in df.columns:
+            d = df.groupby('COMBUSTIVEL_DOMINANTE')['TOTAL_L'].sum().reset_index()
+            fig3 = px.pie(d, names='COMBUSTIVEL_DOMINANTE', values='TOTAL_L', hole=0.4)
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.warning("Coluna 'COMBUSTIVEL_DOMINANTE' não encontrada.")
 
+    # Geoespacial ou tabela de municípios
     with tab4:
-        st.subheader("Anomalias de Consumo")
-        df['Total_L'] = df[sum_cols].sum(axis=1)
-        z = (df['Total_L'] - df['Total_L'].mean()) / df['Total_L'].std()
-        anomal = df[z.abs() > 2]
-        st.metric("Total Registros", len(df), delta=f"{len(anomal)} anomalias detectadas")
-        st.dataframe(anomal.sort_values('Total_L', ascending=False), use_container_width=True)
+        st.subheader("Consumo por Município")
+        if 'Municipio' in df.columns:
+            m = df.groupby('Municipio')['TOTAL_L'].sum().reset_index().sort_values('TOTAL_L', ascending=False)
+            fig4 = px.bar(m, x='Municipio', y='TOTAL_L', labels={'TOTAL_L':'Litros'})
+            st.plotly_chart(fig4, use_container_width=True)
+        else:
+            st.info("Arquivo de municípios não possui coluna de município para análise.")
 
-    if st.sidebar.button("🎉 Balões"):
-        st.balloons()
-
+    st.sidebar.button("🎉 Balões", on_click=st.balloons)
     st.markdown("---")
-    st.markdown("_Dashboard 100% online, sem uploads manuais._")
+    st.markdown("_Dashboard PMAL - Combustível totalmente online._")
 
-# Executa o app
 if __name__ == '__main__':
     main()
