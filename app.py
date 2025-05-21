@@ -4,6 +4,34 @@ import numpy as np
 import plotly.express as px
 import pydeck as pdk
 
+# URLs dos arquivos (raw do GitHub ou outra hospedagem pública)
+URL_ABAST = "COLOQUE_AQUI_A_URL_RAW/Abastecimentos_Consolidados.xlsx"
+URL_FROTA = "COLOQUE_AQUI_A_URL_RAW/Frota_Master_Enriched.xlsx"
+URL_OPM = "COLOQUE_AQUI_A_URL_RAW/OPM_Municipios_Enriched.xlsx"
+
+@st.cache_data(ttl=3600)
+def load_data():
+    try:
+        ab = pd.read_excel(URL_ABAST)
+        fr = pd.read_excel(URL_FROTA)
+        op = pd.read_excel(URL_OPM)
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {e}")
+        st.stop()
+    # Padronizar placas
+    for df in [ab, fr]:
+        df['Placa'] = df['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
+    # Unir dados
+    df = ab.merge(fr, on='Placa', how='left')
+    df = df.merge(op[['OPM','Latitude','Longitude']], on='OPM', how='left')
+    # Detectar coluna de data
+    for c in df.columns:
+        if 'data' in c.lower():
+            df['Data'] = pd.to_datetime(df[c], errors='coerce')
+            break
+    df = df.dropna(subset=['Data'])
+    return df
+
 # Função principal
 def main():
     # Configuração da página
@@ -14,52 +42,18 @@ def main():
         initial_sidebar_state="expanded"
     )
 
-    # Título
-    st.title("📊 Dashboard Online de Combustível PMAL")
-    st.markdown("Ferramenta 100% online para análise e monitoramento de consumo de combustível da frota.")
+    # Carregar dados automaticamente
+    df = load_data()
 
-    # Sidebar: uploads e filtros
-    st.sidebar.header("📥 Upload de Arquivos")
-    file_abast = st.sidebar.file_uploader("Abastecimentos Consolidados (Excel)", type=["xlsx"], key="abast")
-    file_frota = st.sidebar.file_uploader("Frota Master Enriched (Excel)", type=["xlsx"], key="frota")
-    file_opm = st.sidebar.file_uploader("OPM Municípios Enriched (Excel)", type=["xlsx"], key="opm")
-
-    if not file_abast or not file_frota or not file_opm:
-        st.sidebar.warning("Faça upload de todos os três arquivos para visualizar o dashboard.")
-        return
-
-    @st.cache_data(ttl=3600)
-    def load_data(abast, frota, opm):
-        ab = pd.read_excel(abast)
-        fr = pd.read_excel(frota)
-        op = pd.read_excel(opm)
-        # Padronizar placas
-        ab['Placa'] = ab['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
-        fr['Placa'] = fr['Placa'].astype(str).str.upper().str.replace('[^A-Z0-9]', '', regex=True)
-        # Unir dados
-        df = ab.merge(fr, on='Placa', how='left')
-        df = df.merge(op[['OPM','Latitude','Longitude']], on='OPM', how='left')
-        # Data
-        if 'Data' in df.columns:
-            df['Data'] = pd.to_datetime(df['Data'])
-        else:
-            for c in df.columns:
-                if 'data' in c.lower():
-                    df['Data'] = pd.to_datetime(df[c])
-                    break
-        return df
-
-    df = load_data(file_abast, file_frota, file_opm)
-
-    # Filtros
-    st.sidebar.header("📅 Filtros de Período e OPM")
+    # Sidebar: filtros
+    st.sidebar.header("📅 Filtros")
     min_date, max_date = df['Data'].min(), df['Data'].max()
     data_selec = st.sidebar.date_input(
         "Período de Abastecimento", [min_date, max_date],
         min_value=min_date, max_value=max_date
     )
     df = df[(df['Data'] >= pd.to_datetime(data_selec[0])) & (df['Data'] <= pd.to_datetime(data_selec[1]))]
-    opms = df['OPM'].unique().tolist()
+    opms = sorted(df['OPM'].dropna().unique())
     sel_opm = st.sidebar.multiselect("Selecione OPM(s)", opms, default=opms)
     df = df[df['OPM'].isin(sel_opm)]
 
@@ -68,23 +62,24 @@ def main():
 
     with tab1:
         st.subheader("KPIs Principais")
-        total_l = df[['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']].sum().sum()
+        sum_cols = ['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']
+        total_l = df[sum_cols].sum().sum()
         total_custo = df['Custo'].sum() if 'Custo' in df.columns else np.nan
-        media_viatura = df.groupby('Placa')[['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']].sum().mean().sum()
+        media_viatura = df.groupby('Placa')[sum_cols].sum().mean().sum()
         c1, c2, c3 = st.columns(3)
         c1.metric("Total de Litros (L)", f"{total_l:,.0f}")
         c2.metric("Total Gasto (R$)", f"R$ {total_custo:,.2f}")
         c3.metric("Média por Viatura (L)", f"{media_viatura:,.1f}")
         st.divider()
         st.subheader("Distribuição de Combustíveis")
-        df_kpi = df[['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']].sum().reset_index().rename(columns={'index':'Combustível', 0:'Litros'})
+        df_kpi = df[sum_cols].sum().reset_index().rename(columns={'index':'Combustível', 0:'Litros'})
         fig = px.pie(df_kpi, names='Combustível', values='Litros', hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         st.subheader("Consumo Mensal")
-        df_m = df.groupby(pd.Grouper(key='Data', freq='M'))[['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']].sum().reset_index()
-        fig2 = px.line(df_m, x='Data', y=df_m.columns[1:], markers=True)
+        df_m = df.groupby(pd.Grouper(key='Data', freq='M'))[sum_cols].sum().reset_index()
+        fig2 = px.line(df_m, x='Data', y=sum_cols, markers=True)
         st.plotly_chart(fig2, use_container_width=True)
         st.caption("*Passe o mouse sobre as linhas para detalhes*")
 
@@ -94,24 +89,21 @@ def main():
         deck = pdk.Deck(
             map_style='mapbox://styles/mapbox/light-v9',
             initial_view_state=pdk.ViewState(latitude=midpoint[0], longitude=midpoint[1], zoom=6),
-            layers=[
-                pdk.Layer(
-                    'HeatmapLayer',
-                    data=df,
-                    get_position='[Longitude, Latitude]',
-                    radius=20000,
-                    opacity=0.6,
-                )
-            ],
+            layers=[pdk.Layer(
+                'HeatmapLayer',
+                data=df,
+                get_position='[Longitude, Latitude]',
+                radius=20000,
+                opacity=0.6,
+            )],
         )
         st.pydeck_chart(deck)
 
     with tab4:
         st.subheader("Anomalias de Consumo")
-        df['Total_L'] = df[['Gasolina (Lts)','Álcool (Lts)','Diesel (Lts)','Diesel S10 (Lts)']].sum(axis=1)
+        df['Total_L'] = df[sum_cols].sum(axis=1)
         z = (df['Total_L'] - df['Total_L'].mean()) / df['Total_L'].std()
-        df['Anomalia'] = z.abs() > 2
-        anomal = df[df['Anomalia']]
+        anomal = df[z.abs() > 2]
         st.metric("Total Registros", len(df), delta=f"{len(anomal)} anomalias detectadas")
         st.dataframe(anomal.sort_values('Total_L', ascending=False), use_container_width=True)
 
@@ -120,8 +112,8 @@ def main():
         st.balloons()
 
     st.markdown("---")
-    st.markdown("_Dashboard desenvolvido por sua equipe de TI, 100% online e interativo._")
+    st.markdown("_Dashboard totalmente online, sem necessidade de upload manual._")
 
-# Entrada do script
+# Executar
 if __name__ == '__main__':
     main()
