@@ -26,15 +26,13 @@ def load_data():
     df_padroes = pd.read_excel(URL_PADROES)
     return df_abast, df_frota, df_opm, df_padroes
 
-df_abast, df_frota, df_opm, df_padroes = load_data()
+# Carregamento
+[df_abast, df_frota, df_opm, df_padroes] = load_data()
 
 # ---------- Normalize nomes de colunas de OPM ----------
-# remove acentos e padroniza
-normalized_cols = {col: unicodedata.normalize('NFKD', col)
-                   .encode('ASCII','ignore').decode() for col in df_opm.columns}
-df_opm.rename(columns=normalized_cols, inplace=True)
-# garante uppercase
-df_opm.columns = [col.upper() for col in df_opm.columns]
+norm_cols = {col: unicodedata.normalize('NFKD', col).encode('ASCII','ignore').decode() for col in df_opm.columns}
+df_opm.rename(columns=norm_cols, inplace=True)
+df_opm.columns = [c.upper() for c in df_opm.columns]
 
 # ---------- Funções utilitárias ----------
 def normalize_text(s):
@@ -42,118 +40,109 @@ def normalize_text(s):
     nk = unicodedata.normalize('NFKD', str(s))
     return ''.join(c for c in nk if not unicodedata.combining(c))
 
-# unifica nomes de unidades/OPM
 def unify_opm(name):
     if pd.isna(name): return name
     raw = normalize_text(name)
-    # remove ordinais e sinais
     raw = re.sub(r'[ºª°]', '', raw)
-    # padroniza barras e múltiplos espaços
-    raw = raw.replace('/', 'I')
-    # uppercase para padrão
-    s = raw.upper().replace('  ', ' ')
-    # BPM genérico: 2BPM, 10BPM etc.
-    m = re.match(r'(\d+)BPM', s.replace(' ', ''))
+    raw = re.sub(r'(?i)CPM\W*I', 'CPMI', raw)
+    raw = raw.replace('/', ' ')
+    raw = re.sub(r'[^A-Za-z0-9 ]', ' ', raw)
+    s = ' '.join(raw.split()).upper()
+    m = re.match(r'^(\d+)\s*BPM$', s)
     if m:
-        return f"{m.group(1)} BPM"
-    # SECAO EMG: 2A SECAO DO EMG, unifica
-    if 'SECAO' in s and 'EMG' in s:
-        num = re.match(r'(\d+)', s)
-        ordinal = f"{num.group(1)}ª" if num else ''
-        return f"{ordinal} SECAO EMG"
-    # CPMI variantes
-    if 'CPMI' in s or '3CPM' in s:
+        return f"{int(m.group(1))} BPM"
+    if re.search(r'\d+\s*SECAO\s*EMG', s):
+        num = re.search(r'(\d+)', s).group(1)
+        return f"{num}ª SECAO EMG"
+    if 'CPMI' in s:
         return '3ª CPMI'
-    # remove excesso de espaços
-    return ' '.join(s.split())
+    return s
 
-# padroniza PLACA
 def clean_plate(x):
     return str(x).upper().replace('-', '').replace(' ', '')
 
-# parse de moeda robusto
 def parse_currency(x):
     if pd.isna(x): return 0.0
     if isinstance(x, (int, float)): return float(x)
-    s = str(x)
-    s = re.sub(r'[^0-9,\.]', '', s)
+    s = re.sub(r'[^0-9,\.]', '', str(x))
     if s.count(',') and s.count('.'):
         s = s.replace('.', '').replace(',', '.')
     else:
         s = s.replace(',', '.')
-    try: return float(s)
-    except: return 0.0
+    try:
+        return float(s)
+    except:
+        return 0.0
 
-# truncamento sem arredondamento
 def truncar(x, casas=2):
     try:
-        fator = 10**casas
-        return math.floor(float(x)*fator)/fator
+        f = 10 ** casas
+        return math.floor(float(x) * f) / f
     except:
         return x
 
 # ---------- Prepara dados ----------
-# unifica OPMs
 for df in [df_abast, df_frota]:
     if 'UNIDADE' in df.columns:
         df['UNIDADE'] = df['UNIDADE'].apply(unify_opm)
     if 'OPM' in df.columns:
         df['OPM'] = df['OPM'].apply(unify_opm)
-# aplica clean_plate
+
 df_abast['PLACA'] = df_abast['PLACA'].apply(clean_plate)
 df_frota['PLACA'] = df_frota['PLACA'].apply(clean_plate)
-# filtra combustíveis
+
 st.sidebar.header('🎯 Filtros')
-unidades = st.sidebar.multiselect('Selecione Unidades:', sorted(df_abast['UNIDADE'].unique()), default=sorted(df_abast['UNIDADE'].unique()))
-combustiveis = st.sidebar.multiselect('Selecione Combustíveis:', sorted(df_abast['COMBUSTIVEL_DOMINANTE'].unique()), default=sorted(df_abast['COMBUSTIVEL_DOMINANTE'].unique()))
-# subset
+unidades = st.sidebar.multiselect('Selecione Unidades:', sorted(df_abast['UNIDADE'].dropna().unique()), default=sorted(df_abast['UNIDADE'].dropna().unique()))
+combustiveis = st.sidebar.multiselect('Selecione Combustíveis:', sorted(df_abast['COMBUSTIVEL_DOMINANTE'].dropna().unique()), default=sorted(df_abast['COMBUSTIVEL_DOMINANTE'].dropna().unique()))
+
 df = df_abast[df_abast['UNIDADE'].isin(unidades) & df_abast['COMBUSTIVEL_DOMINANTE'].isin(combustiveis)].copy()
-# padrões de locação
-cols = list(df_padroes.columns)
-id_col, val_col = cols[0], cols[1]
+
+# Padrões de locação
+id_col, val_col = df_padroes.columns[0], df_padroes.columns[1]
 df_padroes.rename(columns={id_col:'PADRAO', val_col:'CUSTO_LOCACAO_PADRAO'}, inplace=True)
 df_padroes['CUSTO_LOCACAO_PADRAO'] = df_padroes['CUSTO_LOCACAO_PADRAO'].apply(parse_currency)
-# merge frota-padrões
+
 df_frota = df_frota.merge(df_padroes[['PADRAO','CUSTO_LOCACAO_PADRAO']], on='PADRAO', how='left')
-mask_loc = df_frota['Frota'].str.upper()=='LOCADO'
+mask_loc = df_frota['Frota'].str.upper() == 'LOCADO'
 df_frota['CUSTO_PADRAO_MENSAL'] = 0.0
 df_frota.loc[mask_loc,'CUSTO_PADRAO_MENSAL'] = df_frota.loc[mask_loc,'CUSTO_LOCACAO_PADRAO']
-if 'CUSTO_LOCACAO_PADRAO' in df_frota.columns: df_frota.drop(columns=['CUSTO_LOCACAO_PADRAO'], inplace=True)
-# merge final
-df = df.merge(df_frota[['PLACA','OPM','Frota','PADRAO','CARACTERIZACAO','CUSTO_PADRAO_MENSAL']], on='PLACA', how='left')
+if 'CUSTO_LOCACAO_PADRAO' in df_frota.columns:
+    df_frota.drop(columns=['CUSTO_LOCACAO_PADRAO'], inplace=True)
+
+# Merge final
+merge_cols = ['PLACA','OPM','Frota','PADRAO','CARACTERIZACAO','CUSTO_PADRAO_MENSAL']
+df = df.merge(df_frota[merge_cols], on='PLACA', how='left')
 df.fillna({'Frota':'NÃO LOCALIZADO','PADRAO':'N/D','CARACTERIZACAO':'N/D'}, inplace=True)
-# cálculos
 df['CUSTO_TOTAL_VEICULO'] = df['VALOR_TOTAL'] + df['CUSTO_PADRAO_MENSAL']
 df['Nº de frotas abastecidas'] = df.groupby('PLACA')['UNIDADE'].transform('nunique')
 
-# ---------- Cria abas ----------
+# ---------- Abas ----------
 t1, t2, t3, t4 = st.tabs(['🔎 Visão Geral','🚘 Frota por OPM','📍 OPMs & Municípios','📋 Detalhamento'])
 
-# --- Visão Geral ---
-with t1:
-    st.subheader('✨ Indicadores Principais')
-    total_veh = df['PLACA'].nunique()
-    total_lit = df['TOTAL_LITROS'].sum()
-    total_val = df['VALOR_TOTAL'].sum()
-    avg_lit = df.groupby('PLACA')['TOTAL_LITROS'].sum().mean()
-    avg_val = df.groupby('PLACA')['VALOR_TOTAL'].sum().mean()
-    c1,c2,c3,c4,c5,c6 = st.columns(6)
-    c1.metric('Registros',f'{len(df):,}')
-    c2.metric('Viaturas',f'{total_veh}')
-    c3.metric('Total Litros',f'{truncar(total_lit):,.2f} L')
-    c4.metric('Total Gasto (R$)',f'R$ {truncar(total_val):,.2f}')
-    c5.metric('Média Litros/Viatura',f'{truncar(avg_lit):,.2f} L')
-    c6.metric('Média Gasto/Viatura',f'R$ {truncar(avg_val):,.2f}')
-    st.divider()
-    fig = px.bar(df.groupby('UNIDADE')['TOTAL_LITROS'].sum().reset_index().sort_values('TOTAL_LITROS',ascending=False), x='TOTAL_LITROS',y='UNIDADE',orientation='h',labels={'TOTAL_LITROS':'Litros','UNIDADE':'Unidade'},title='Consumo por Unidade')
-    st.plotly_chart(fig,use_container_width=True)
+# Visão Geral
+t1.subheader('✨ Indicadores Principais')
+total_veh = df['PLACA'].nunique()
+total_lit = df['TOTAL_LITROS'].sum()
+total_val = df['VALOR_TOTAL'].sum()
+avg_lit = df.groupby('PLACA')['TOTAL_LITROS'].sum().mean()
+avg_val = df.groupby('PLACA')['VALOR_TOTAL'].sum().mean()
+c1,c2,c3,c4,c5,c6 = st.columns(6)
+c1.metric('Registros',f'{len(df):,}')
+c2.metric('Viaturas',f'{total_veh}')
+c3.metric('Total Litros',f'{truncar(total_lit):,.2f} L')
+c4.metric('Total Gasto (R$)',f'R$ {truncar(total_val):,.2f}')
+c5.metric('Média Litros/Viatura',f'{truncar(avg_lit):,.2f} L')
+c6.metric('Média Gasto/Viatura',f'R$ {truncar(avg_val):,.2f}')
+st.divider()
+fig = px.bar(df.groupby('UNIDADE')['TOTAL_LITROS'].sum().reset_index().sort_values('TOTAL_LITROS',ascending=False), x='TOTAL_LITROS', y='UNIDADE', orientation='h', labels={'TOTAL_LITROS':'Litros','UNIDADE':'Unidade'}, title='Consumo por Unidade')
+st.plotly_chart(fig,use_container_width=True)
 
-# --- Frota por OPM ---
+# Frota por OPM
 with t2:
     st.subheader('🚘 Frota por OPM')
     tbl = df_frota.groupby(['OPM','Frota']).size().unstack(fill_value=0)
-    if 'PRÓPRIO' in tbl: tbl.rename(columns={'PRÓPRIO':'PRÓPRIAS/JUSTIÇA'}, inplace=True)
-    if 'LOCADO' in tbl: tbl.rename(columns={'LOCADO':'LOCADAS'}, inplace=True)
+    if 'PRÓPRIO' in tbl.columns: tbl.rename(columns={'PRÓPRIO':'PRÓPRIAS/JUSTIÇA'}, inplace=True)
+    if 'LOCADO' in tbl.columns: tbl.rename(columns={'LOCADO':'LOCADAS'}, inplace=True)
     tbl['TOTAL'] = tbl.sum(axis=1)
     st.dataframe(tbl.reset_index().fillna('NÃO LOCALIZADO'),use_container_width=True)
     st.divider()
@@ -165,7 +154,7 @@ with t2:
     fig2 = px.bar(dist,x='OPM',y='Contagem',color='Tipo',barmode='group',labels={'Contagem':'# Veículos','OPM':'Batalhão'},title='Veículos por OPM e Tipo')
     st.plotly_chart(fig2,use_container_width=True)
 
-# --- OPMs & Municípios ---
+# OPMs & Municípios
 with t3:
     st.subheader('📍 OPMs & Municípios')
     df_opm['TIPO_NORM']=df_opm['TIPO_LOCAL'].apply(lambda x: normalize_text(x).lower() if pd.notna(x) else '')
@@ -200,9 +189,9 @@ with t3:
             st.markdown(f"- **{high['OPM']}** está **{truncar(high['Dif']):.2f}** acima da média.")
             st.markdown(f"- **{low['OPM']}** está **{truncar(low['Dif']):.2f}** abaixo da média.")
             if moves > 0:
-                st.markdown(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")
+                st.markdown(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")
 
-# --- Detalhamento ---
+# Detalhamento
 with t4:
     st.subheader('📋 Ranking e Detalhamento')
     base_rank=df.groupby('PLACA').agg(Litros=('TOTAL_LITROS','sum'),Valor=('VALOR_TOTAL','sum')).reset_index().sort_values('Litros',ascending=False)
