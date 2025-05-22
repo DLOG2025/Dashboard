@@ -74,19 +74,31 @@ df = df_abast[
 padroes_cols = list(df_padroes.columns)
 id_col, val_col = padroes_cols[0], padroes_cols[1]
 df_padroes.rename(columns={id_col: 'PADRAO', val_col: 'CUSTO_LOCACAO_PADRAO'}, inplace=True)
-# Trunca valor padrão
-df_padroes['CUSTO_LOCACAO_PADRAO'] = df_padroes['CUSTO_LOCACAO_PADRAO'].apply(lambda x: float(str(x).replace('R$','').replace(',','.')))
+# Função robusta para parse de moeda
+import re
+def parse_currency(x):
+    if pd.isna(x):
+        return 0.0
+    if isinstance(x, (int, float)):
+        return float(x)
+    s = str(x)
+    # Remove tudo que não é dígito, ponto ou vírgula
+    s = re.sub(r"[^0-9,\.]", "", s)
+    # Remove separador de milhares e padroniza decimal
+    if s.count(',') > 0 and s.count('.') > 0:
+        # assume ponto como milhares, vírgula decimal
+        s = s.replace('.', '').replace(',', '.')
+    else:
+        s = s.replace(',', '.')
+    try:
+        return float(s)
+    except:
+        return 0.0
+# Aplica parse
+df_padroes['CUSTO_LOCACAO_PADRAO'] = df_padroes['CUSTO_LOCACAO_PADRAO'].apply(parse_currency)
 
 # Merge frota com padrões
-df_frota = df_frota.merge(
-    df_padroes[['PADRAO','CUSTO_LOCACAO_PADRAO']], on='PADRAO', how='left'
-)
-# Em veículos não locados, custo padrão = 0
-mask_loc = df_frota['Frota'].str.upper() == 'LOCADO'
-df_frota['CUSTO_PADRAO_MENSAL'] = 0.0
-df_frota.loc[mask_loc, 'CUSTO_PADRAO_MENSAL'] = df_frota.loc[mask_loc, 'CUSTO_LOCACAO_PADRAO']
 
-# Remove coluna auxiliar
 df_frota.drop(columns=['CUSTO_LOCACAO_PADRAO'], inplace=True)
 
 # Merge de df com dados de frota
