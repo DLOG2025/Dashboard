@@ -324,12 +324,14 @@ with t4:
     multi_opm = multi_opm[multi_opm['UNIDADE'] > 1]
     if not multi_opm.empty:
         multi_frotas = df[df['PLACA'].isin(multi_opm['PLACA'])]
-        table_multi = multi_frotas.groupby('PLACA').agg(
-            OPMs=('UNIDADE', lambda x: ', '.join(sorted(set(x)))),
-            Valor_total=('VALOR_TOTAL', 'sum')
-        ).reset_index()
-        table_multi['Valor_total'] = table_multi['Valor_total'].apply(truncar).map(lambda x: f"R$ {x:,.2f}")
-        st.dataframe(table_multi, use_container_width=True)
+        # Valor por OPM
+        valores_opm = multi_frotas.groupby(['PLACA','UNIDADE'])['VALOR_TOTAL'].sum().reset_index()
+        # Pivot para OPMs em colunas
+        tabela_valores = valores_opm.pivot(index='PLACA', columns='UNIDADE', values='VALOR_TOTAL').fillna(0)
+        tabela_valores = tabela_valores.applymap(lambda x: f"R$ {truncar(x):,.2f}")
+        tabela_valores['Valor Total'] = valores_opm.groupby('PLACA')['VALOR_TOTAL'].sum().apply(truncar).map(lambda x: f"R$ {x:,.2f}")
+        tabela_valores.reset_index(inplace=True)
+        st.dataframe(tabela_valores, use_container_width=True)
     else:
         st.info('Nenhuma viatura abasteceu em mais de uma OPM no período filtrado.')
 
