@@ -34,7 +34,6 @@ def normalize_text(s):
     nk = unicodedata.normalize('NFKD', str(s))
     return ''.join(c for c in nk if not unicodedata.combining(c))
 
-# Unifica OPMs
 def unify_opm(name):
     if pd.isna(name): return name
     raw = normalize_text(name)
@@ -181,7 +180,7 @@ with t1:
 
 # -------- FROTA POR OPM --------
 with t2:
-    st.subheader('🚘 Frota por OPM (Fonte: Cadastro de Frota)')
+    st.subheader('🚘 Frota por OPM')
     frota_opm = df_frota.groupby(['OPM', 'Frota']).agg(
         Qtde=('PLACA', 'nunique')
     ).reset_index()
@@ -199,14 +198,11 @@ with t2:
     st.dataframe(char_pivot.reset_index().fillna('NÃO LOCALIZADO'), use_container_width=True)
 
     st.divider()
-    st.subheader('🌐 Gráfico de Barras: Frota por OPM')
-    frota_pivot_melt = frota_pivot.reset_index().melt(id_vars='OPM', var_name='Tipo', value_name='Qtde')
-    fig_frota = px.bar(
-        frota_pivot_melt[frota_pivot_melt['Tipo'] != 'TOTAL'],
-        x='OPM', y='Qtde', color='Tipo', barmode='group',
-        labels={'Qtde': 'Quantidade', 'OPM': 'OPM'}, title='Distribuição da Frota por OPM e Tipo'
-    )
-    st.plotly_chart(fig_frota, use_container_width=True)
+    st.subheader('🌳 Visualização Frota por OPM')
+    frota_treemap = frota_pivot.reset_index()[['OPM', 'TOTAL']]
+    fig_tree = px.treemap(frota_treemap, path=['OPM'], values='TOTAL',
+        title='Distribuição Visual da Frota por OPM')
+    st.plotly_chart(fig_tree, use_container_width=True)
 
 # -------- OPMs & MUNICÍPIOS --------
 with t3:
@@ -264,5 +260,33 @@ with t4:
     for col in ['Litros','Valor R$']:
         disp_full[col] = disp_full[col].apply(truncar).map(lambda x: f"{x:,.2f}")
     st.dataframe(disp_full.fillna('NÃO LOCALIZADO'), use_container_width=True, height=500)
+
+    st.divider()
+    st.subheader('🔄 Viaturas Abastecendo em Múltiplas OPMs')
+    multi_opm = df.groupby('PLACA')['OPM ABASTECIMENTO'].nunique().reset_index()
+    multi_opm = multi_opm[multi_opm['OPM ABASTECIMENTO'] > 1]
+    multi_opm = multi_opm.merge(
+        df[['PLACA', 'OPM ABASTECIMENTO']], on='PLACA', how='left'
+    ).drop_duplicates()
+    if not multi_opm.empty:
+        multi_frotas = df[df['PLACA'].isin(multi_opm['PLACA'])]
+        table_multi = multi_frotas.groupby('PLACA').agg(
+            OPMs=('OPM ABASTECIMENTO', lambda x: ', '.join(sorted(set(x))))
+        ).reset_index()
+        st.dataframe(table_multi, use_container_width=True)
+    else:
+        st.info('Nenhuma viatura abasteceu em mais de uma OPM no período filtrado.')
+
+    st.divider()
+    st.subheader('🏆 Ranking Geral das Viaturas')
+    rank_geral = df.groupby('PLACA').agg(
+        Litros=('Litros', lambda x: x.sum() if np.issubdtype(x.dtype, np.number) else 0),
+        Valor=('Valor R$', lambda x: x.sum() if np.issubdtype(x.dtype, np.number) else 0),
+        OPM=('CARGA', 'first')
+    ).reset_index().sort_values('Litros', ascending=False)
+    rank_geral['Posição'] = range(1, len(rank_geral)+1)
+    rank_geral['Litros'] = pd.to_numeric(rank_geral['Litros'], errors='coerce').fillna(0).apply(truncar).map(lambda x: f"{x:,.2f}")
+    rank_geral['Valor'] = pd.to_numeric(rank_geral['Valor'], errors='coerce').fillna(0).apply(truncar).map(lambda x: f"R$ {x:,.2f}")
+    st.dataframe(rank_geral[['Posição','PLACA','OPM','Litros','Valor']].fillna('NÃO LOCALIZADO'), use_container_width=True)
 
 st.info('🔧 Ajuste filtros conforme necessário.')
