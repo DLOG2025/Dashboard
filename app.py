@@ -185,15 +185,22 @@ with t3:
     st.dataframe(summary.fillna('NÃO LOCALIZADO'),use_container_width=True)
     st.divider()
     st.subheader('📈 Sugestão de Redistribuição')
-    valid=summary[summary['Municípios']>0].copy()
-    valid['Dif']=valid['Vtr/Município']-valid['Vtr/Município'].mean()
-    high=valid.loc[valid['Dif'].idxmax()]
-    low=valid.loc[valid['Dif'].idxmin()]
-    moves=math.floor((high['Dif']-low['Dif'])/2)
-    st.markdown(f"- Média Vtr/Município: **{truncar(valid['Vtr/Município'].mean()):.2f}**")
-    st.markdown(f"- **{high['OPM']}** está **{truncar(high['Dif']):.2f}** acima da média.")
-    st.markdown(f"- **{low['OPM']}** está **{truncar(low['Dif']):.2f}** abaixo da média.")
-    if moves>0: st.markdown(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")
+    valid = summary[summary['Municípios']>0].copy()
+    if valid.empty:
+        st.write("Não há dados suficientes para sugestão de redistribuição.")
+    else:
+        valid['Dif'] = valid['Vtr/Município'] - valid['Vtr/Município'].mean()
+        if valid['Dif'].isnull().all():
+            st.write("Não há variação suficiente para sugestão de redistribuição.")
+        else:
+            high = valid.loc[valid['Dif'].idxmax()]
+            low = valid.loc[valid['Dif'].idxmin()]
+            moves = math.floor((high['Dif'] - low['Dif']) / 2)
+            st.markdown(f"- Média Vtr/Município: **{truncar(valid['Vtr/Município'].mean()):.2f}**")
+            st.markdown(f"- **{high['OPM']}** está **{truncar(high['Dif']):.2f}** acima da média.")
+            st.markdown(f"- **{low['OPM']}** está **{truncar(low['Dif']):.2f}** abaixo da média.")
+            if moves > 0:
+                st.markdown(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")
 
 # --- Detalhamento ---
 with t4:
