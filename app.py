@@ -198,11 +198,14 @@ with t2:
     st.dataframe(char_pivot.reset_index().fillna('NÃO LOCALIZADO'), use_container_width=True)
 
     st.divider()
-    st.subheader('🌳 Visualização Frota por OPM')
-    frota_treemap = frota_pivot.reset_index()[['OPM', 'TOTAL']]
-    fig_tree = px.treemap(frota_treemap, path=['OPM'], values='TOTAL',
-        title='Distribuição Visual da Frota por OPM')
-    st.plotly_chart(fig_tree, use_container_width=True)
+    st.subheader('📊 Frota por OPM (Barras)')
+    total_frota = frota_pivot.reset_index()[['OPM', 'TOTAL']].sort_values('TOTAL', ascending=False)
+    fig_bar = px.bar(
+        total_frota, x='TOTAL', y='OPM', orientation='h',
+        labels={'TOTAL': 'Total de Veículos', 'OPM': 'OPM'},
+        title='Total de Frota por OPM'
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 # -------- OPMs & MUNICÍPIOS --------
 with t3:
@@ -322,8 +325,10 @@ with t4:
     if not multi_opm.empty:
         multi_frotas = df[df['PLACA'].isin(multi_opm['PLACA'])]
         table_multi = multi_frotas.groupby('PLACA').agg(
-            OPMs=('UNIDADE', lambda x: ', '.join(sorted(set(x))))
+            OPMs=('UNIDADE', lambda x: ', '.join(sorted(set(x)))),
+            Valor_total=('VALOR_TOTAL', 'sum')
         ).reset_index()
+        table_multi['Valor_total'] = table_multi['Valor_total'].apply(truncar).map(lambda x: f"R$ {x:,.2f}")
         st.dataframe(table_multi, use_container_width=True)
     else:
         st.info('Nenhuma viatura abasteceu em mais de uma OPM no período filtrado.')
@@ -331,9 +336,9 @@ with t4:
     st.divider()
     st.subheader('🏆 Ranking Geral das Viaturas')
     rank_geral = df.groupby('PLACA').agg(
-        Litros=('Litros', lambda x: x.sum() if np.issubdtype(x.dtype, np.number) else 0),
-        Valor=('Valor R$', lambda x: x.sum() if np.issubdtype(x.dtype, np.number) else 0),
-        OPM=('CARGA', 'first')
+        Litros=('TOTAL_LITROS', 'sum'),
+        Valor=('VALOR_TOTAL', 'sum'),
+        OPM=('UNIDADE', 'first')
     ).reset_index().sort_values('Litros', ascending=False)
     rank_geral['Posição'] = range(1, len(rank_geral)+1)
     rank_geral['Litros'] = pd.to_numeric(rank_geral['Litros'], errors='coerce').fillna(0).apply(truncar).map(lambda x: f"{x:,.2f}")
