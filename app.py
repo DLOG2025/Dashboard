@@ -35,23 +35,21 @@ def normalize_text(s):
     return ''.join(c for c in nk if not unicodedata.combining(c))
 
 def unify_opm(name):
+    # Função padronizada para respeitar o número da CPMI, sem fixar para "3ª CPMI"
     if pd.isna(name): return name
     raw = normalize_text(name)
     # remove letras ou ordinais grudados ao número
     raw = re.sub(r'(?<=\d)[A-Za-zºª°]+', '', raw)
-    # unifica CPMI variantes
-    raw = re.sub(r'(?i)\bC\W*P\W*M\W*I\b', 'CPMI', raw)
+    # padroniza CPMI com número correto (ex: "3 CPMI" -> "3 CPMI", "4ª CPMI" -> "4 CPMI")
+    raw = re.sub(r'(\d+)\W*CPM\W*I', lambda m: f"{int(m.group(1))} CPMI", raw, flags=re.IGNORECASE)
+    # padroniza BPM
+    raw = re.sub(r'(\d+)\W*BPM', lambda m: f"{int(m.group(1))} BPM", raw, flags=re.IGNORECASE)
+    # padroniza SECAO EMG
+    raw = re.sub(r'(\d+)\W*SECAO\W*EMG', lambda m: f"{int(m.group(1))} SECAO EMG", raw, flags=re.IGNORECASE)
+    # remove barras, pontos, traços, etc.
     raw = raw.replace('/', ' ')
     raw = re.sub(r'[^A-Za-z0-9 ]', ' ', raw)
     s = ' '.join(raw.split()).upper()
-    m = re.match(r'^(\d+)\s*BPM$', s)
-    if m:
-        return f"{int(m.group(1))} BPM"
-    if re.search(r'\d+\s*SECAO\s*EMG', s):
-        num = re.search(r'(\d+)', s).group(1)
-        return f"{num}ª SECAO EMG"
-    if 'CPMI' in s:
-        return '3ª CPMI'
     return s
 
 def clean_plate(x):
@@ -324,14 +322,15 @@ with t4:
     multi_opm = multi_opm[multi_opm['UNIDADE'] > 1]
     if not multi_opm.empty:
         multi_frotas = df[df['PLACA'].isin(multi_opm['PLACA'])]
-        # Valor por OPM
         valores_opm = multi_frotas.groupby(['PLACA','UNIDADE'])['VALOR_TOTAL'].sum().reset_index()
-        # Pivot para OPMs em colunas
-        tabela_valores = valores_opm.pivot(index='PLACA', columns='UNIDADE', values='VALOR_TOTAL').fillna(0)
-        tabela_valores = tabela_valores.applymap(lambda x: f"R$ {truncar(x):,.2f}")
-        tabela_valores['Valor Total'] = valores_opm.groupby('PLACA')['VALOR_TOTAL'].sum().apply(truncar).map(lambda x: f"R$ {x:,.2f}")
-        tabela_valores.reset_index(inplace=True)
-        st.dataframe(tabela_valores, use_container_width=True)
+        valores_opm['VALOR_TOTAL'] = valores_opm['VALOR_TOTAL'].apply(truncar)
+        total_placa = multi_frotas.groupby('PLACA')['VALOR_TOTAL'].sum().reset_index().rename(columns={'VALOR_TOTAL':'VALOR_TOTAL_GERAL'})
+        total_placa['VALOR_TOTAL_GERAL'] = total_placa['VALOR_TOTAL_GERAL'].apply(truncar)
+        tabela = valores_opm.merge(total_placa, on='PLACA')
+        tabela['VALOR_TOTAL'] = tabela['VALOR_TOTAL'].map(lambda x: f"R$ {x:,.2f}")
+        tabela['VALOR_TOTAL_GERAL'] = tabela['VALOR_TOTAL_GERAL'].map(lambda x: f"R$ {x:,.2f}")
+        tabela = tabela.rename(columns={'PLACA':'Placa', 'UNIDADE':'OPMs abastecidas', 'VALOR_TOTAL':'Valor abastecido', 'VALOR_TOTAL_GERAL':'Valor total'})
+        st.dataframe(tabela[['Placa','OPMs abastecidas','Valor abastecido','Valor total']], use_container_width=True)
     else:
         st.info('Nenhuma viatura abasteceu em mais de uma OPM no período filtrado.')
 
