@@ -7,7 +7,7 @@ import unicodedata
 import re
 
 # ---------- Configuração da página ----------
-title = "🚓 DASHBOARD_VIATURAS - DLOG"
+title = "🚓 DASHBOARD_VIATURAS_DLOG - DLOG"
 st.set_page_config(page_title=title, layout="wide")
 st.title(title)
 
@@ -43,17 +43,20 @@ def normalize_text(s):
 def unify_opm(name):
     if pd.isna(name): return name
     raw = normalize_text(name)
-    raw = re.sub(r'[ºª°]', '', raw)
-    raw = re.sub(r'(?i)CPM\W*I', 'CPMI', raw)
+    raw = re.sub(r'[ºª°]', '', raw)  # remove ordinais
+    raw = re.sub(r'(?i)C\W*P\W*M\W*I', 'CPMI', raw)  # unifica CPMI variantes
     raw = raw.replace('/', ' ')
     raw = re.sub(r'[^A-Za-z0-9 ]', ' ', raw)
     s = ' '.join(raw.split()).upper()
+    # BPM genérico
     m = re.match(r'^(\d+)\s*BPM$', s)
     if m:
         return f"{int(m.group(1))} BPM"
+    # SECAO EMG
     if re.search(r'\d+\s*SECAO\s*EMG', s):
         num = re.search(r'(\d+)', s).group(1)
         return f"{num}ª SECAO EMG"
+    # CPMI consolidado
     if 'CPMI' in s:
         return '3ª CPMI'
     return s
@@ -69,10 +72,8 @@ def parse_currency(x):
         s = s.replace('.', '').replace(',', '.')
     else:
         s = s.replace(',', '.')
-    try:
-        return float(s)
-    except:
-        return 0.0
+    try: return float(s)
+    except: return 0.0
 
 def truncar(x, casas=2):
     try:
@@ -109,11 +110,9 @@ df_frota.loc[mask_loc,'CUSTO_PADRAO_MENSAL'] = df_frota.loc[mask_loc,'CUSTO_LOCA
 if 'CUSTO_LOCACAO_PADRAO' in df_frota.columns:
     df_frota.drop(columns=['CUSTO_LOCACAO_PADRAO'], inplace=True)
 
-# Merge final
 merge_cols = ['PLACA','OPM','Frota','PADRAO','CARACTERIZACAO','CUSTO_PADRAO_MENSAL']
 df = df.merge(df_frota[merge_cols], on='PLACA', how='left')
 df.fillna({'Frota':'NÃO LOCALIZADO','PADRAO':'N/D','CARACTERIZACAO':'N/D'}, inplace=True)
-df['CUSTO_TOTAL_VEICULO'] = df['VALOR_TOTAL'] + df['CUSTO_PADRAO_MENSAL']
 df['Nº de frotas abastecidas'] = df.groupby('PLACA')['UNIDADE'].transform('nunique')
 
 # ---------- Abas ----------
@@ -168,62 +167,3 @@ with t3:
     bair.rename(columns={'UNIDADE':'OPM'},inplace=True)
     vehs=df_frota.groupby('OPM')['PLACA'].nunique().reset_index(name='Viaturas')
     summary=vehs.merge(muni,on='OPM',how='left').merge(bair,on='OPM',how='left')
-    summary[['Municípios','Bairros']]=summary[['Municípios','Bairros']].fillna(0).astype(int)
-    summary['Vtr/Município']=(summary['Viaturas']/summary['Municípios']).replace(np.inf,0).round(2)
-    summary['Vtr/Bairro']=(summary['Viaturas']/summary['Bairros']).replace(np.inf,0).round(2)
-    st.dataframe(summary.fillna('NÃO LOCALIZADO'),use_container_width=True)
-    st.divider()
-    st.subheader('📈 Sugestão de Redistribuição')
-    valid = summary[summary['Municípios']>0].copy()
-    if valid.empty:
-        st.write("Não há dados suficientes para sugestão de redistribuição.")
-    else:
-        valid['Dif'] = valid['Vtr/Município'] - valid['Vtr/Município'].mean()
-        if valid['Dif'].isnull().all():
-            st.write("Não há variação suficiente para sugestão de redistribuição.")
-        else:
-            high = valid.loc[valid['Dif'].idxmax()]
-            low = valid.loc[valid['Dif'].idxmin()]
-            moves = math.floor((high['Dif'] - low['Dif']) / 2)
-            st.markdown(f"- Média Vtr/Município: **{truncar(valid['Vtr/Município'].mean()):.2f}**")
-            st.markdown(f"- **{high['OPM']}** está **{truncar(high['Dif']):.2f}** acima da média.")
-            st.markdown(f"- **{low['OPM']}** está **{truncar(low['Dif']):.2f}** abaixo da média.")
-            if moves > 0:
-                st.markdown(f"→ Realocar **{moves}** viatura(s) de {high['OPM']} para {low['OPM']}.")
-
-# Detalhamento
-with t4:
-    st.subheader('📋 Ranking e Detalhamento')
-    base_rank=df.groupby('PLACA').agg(Litros=('TOTAL_LITROS','sum'),Valor=('VALOR_TOTAL','sum')).reset_index().sort_values('Litros',ascending=False)
-    opm_map=df_frota[['PLACA','OPM']].drop_duplicates()
-    base_rank=base_rank.merge(opm_map,on='PLACA',how='left')
-    base_rank['Posição']=base_rank.index+1
-    base_rank[['Litros','Valor']]=base_rank[['Litros','Valor']].applymap(truncar)
-    disp=base_rank.copy()
-    disp['Litros']=disp['Litros'].map(lambda x:f"{x:,.2f}")
-    disp['Valor']=disp['Valor'].map(lambda x:f"R$ {x:,.2f}")
-    st.subheader('📃 Ranking Completo')
-    st.dataframe(disp[['Posição','PLACA','OPM','Litros','Valor']].fillna('NÃO LOCALIZADO'),use_container_width=True)
-    st.divider()
-    st.subheader('🔝 Top 20 por Consumo')
-    st.dataframe(disp.head(20)[['Posição','PLACA','OPM','Litros','Valor']].fillna('NÃO LOCALIZADO'),use_container_width=True)
-    st.divider()
-    st.subheader('🚨 Abastecimento em múltiplas frotas')
-    multi=df.groupby('PLACA')['UNIDADE'].apply(lambda x:sorted(x.unique())).reset_index(name='Frotas')
-    multi['Nº de frotas abastecidas']=multi['Frotas'].apply(len)
-    multi=multi[multi['Nº de frotas abastecidas']>1]
-    st.dataframe(multi.fillna('NÃO LOCALIZADO'),use_container_width=True)
-    st.divider()
-    st.subheader('📂 Tabela Final Detalhada')
-    disp_full=df.rename(columns={
-        'COMBUSTIVEL_DOMINANTE':'Combustível','TOTAL_LITROS':'Litros',
-        'VALOR_TOTAL':'Valor R$','PADRAO':'Padrão','CARACTERIZACAO':'Caracterização',
-        'Nº de frotas abastecidas':'Nº de frotas abastecidas'
-    })[[
-        'PLACA','OPM','UNIDADE','Combustível','Litros','Valor R$','Frota','Padrão','Caracterização','Nº de frotas abastecidas'
-    ]]
-    for col in ['Litros','Valor R$']:
-        disp_full[col]=disp_full[col].apply(truncar).map(lambda x:f"{x:,.2f}")
-    st.dataframe(disp_full.fillna('NÃO LOCALIZADO'),use_container_width=True,height=500)
-
-st.info('🔧 Ajuste filtros conforme necessário.')
