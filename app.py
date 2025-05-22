@@ -45,18 +45,31 @@ def normalize_text(s):
     nk = unicodedata.normalize("NFKD", str(s))
     return "".join(c for c in nk if not unicodedata.combining(c))
 
+# Padronizar colunas do df_opm: remover acentos de nomes de colunas
+if 'MUNICÍPIO' in df_opm.columns:
+    df_opm.rename(columns={'MUNICÍPIO':'MUNICIPIO','MUNICÍPIO_REFERÊNCIA':'MUNICIPIO_REFERENCIA'}, inplace=True)
+
 # Unificação de nomes de OPMs para casos específicos
 def unify_opm(name):
     if pd.isna(name):
         return name
-    s = normalize_text(name).upper().replace("/","I").replace(' ', '')
+    raw = normalize_text(name)
+    # Remove marcadores ordinais e sinais especiais
+    raw_no_ord = re.sub(r"[ºª°]", "", raw)
+    s = raw_no_ord.upper().replace("/","I").replace(' ', '')
     # Exemplo 3ª CPMI variantes
-    if 'CPMI' in s or '3ªCPM' in s:
+    if 'CPMI' in s or '3CPM' in s:
         return '3ª CPMI'
-    # Até aqui, outras regras podem ser adicionadas
-    return normalize_text(name)
+    # Unifica 10 BPM variantes
+    if re.match(r"10A?BPM", s):
+        return '10 BPM'
+    return normalize_text(raw)
 
 # Aplica unificação
+df_abast['UNIDADE'] = df_abast['UNIDADE'].apply(unify_opm)
+df_opm['UNIDADE'] = df_opm['UNIDADE'].apply(unify_opm)
+if 'OPM' in df_frota.columns:
+    df_frota['OPM'] = df_frota['OPM'].apply(unify_opm)
 df_abast['UNIDADE'] = df_abast['UNIDADE'].apply(unify_opm)
 df_opm['UNIDADE'] = df_opm['UNIDADE'].apply(unify_opm)
 if 'OPM' in df_frota.columns:
@@ -186,13 +199,20 @@ with t2:
 
 with t3:
     st.subheader("📍 OPMs & Municípios")
-    interior = df_opm[(df_opm['TIPO_LOCAL'].str.lower()=='municipio') & (df_opm['MUNICIPIO']!='Maceio')]
+    # Normaliza e filtra municípios do interior (exclui Maceió)
+    df_opm['TIPO_NORM'] = df_opm['TIPO_LOCAL'].apply(lambda x: normalize_text(x).lower() if pd.notna(x) else '')
+    df_opm['MUNI_NORM'] = df_opm['MUNICIPIO'].apply(lambda x: normalize_text(x) if pd.notna(x) else '')
+    df_opm['MUNI_REF_NORM'] = df_opm['MUNICIPIO_REFERENCIA'].apply(lambda x: normalize_text(x) if pd.notna(x) else '')
+    interior = df_opm[(df_opm['TIPO_NORM']=='municipio') & (df_opm['MUNI_NORM']!='Maceio')]
     muni = interior.groupby('UNIDADE')['MUNICIPIO'].nunique().reset_index(name='Municípios')
     muni.rename(columns={'UNIDADE':'OPM'}, inplace=True)
-    bairros = df_opm[(df_opm['TIPO_LOCAL'].str.lower()=='bairro') & (df_opm['MUNICIPIO_REFERENCIA']=='Maceio')]
+    # Filtra bairros de Maceió
+    bairros = df_opm[(df_opm['TIPO_NORM']=='bairro') & (df_opm['MUNI_REF_NORM']=='Maceio')]
     bair = bairros.groupby('UNIDADE')['LOCAL'].nunique().reset_index(name='Bairros')
     bair.rename(columns={'UNIDADE':'OPM'}, inplace=True)
+    # Viaturas por OPM
     vehs = df_frota.groupby('OPM')['PLACA'].nunique().reset_index(name='Viaturas')
+    # Merge dos dados
     summary = vehs.merge(muni, on='OPM', how='left').merge(bair, on='OPM', how='left')
     summary[['Municípios','Bairros']] = summary[['Municípios','Bairros']].fillna(0).astype(int)
     summary['Vtr/Município'] = (summary['Viaturas']/summary['Municípios']).replace(np.inf,0).round(2)
