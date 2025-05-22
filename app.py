@@ -38,17 +38,17 @@ def unify_opm(name):
     if pd.isna(name): return name
     raw = normalize_text(name)
     # remove letras ou ordinais grudados ao número
-    raw = re.sub(r'(?<=\\d)[A-Za-zºª°]+', '', raw)
+    raw = re.sub(r'(?<=\d)[A-Za-zºª°]+', '', raw)
     # unifica CPMI variantes
-    raw = re.sub(r'(?i)\\bC\\W*P\\W*M\\W*I\\b', 'CPMI', raw)
+    raw = re.sub(r'(?i)\bC\W*P\W*M\W*I\b', 'CPMI', raw)
     raw = raw.replace('/', ' ')
     raw = re.sub(r'[^A-Za-z0-9 ]', ' ', raw)
     s = ' '.join(raw.split()).upper()
-    m = re.match(r'^(\\d+)\\s*BPM$', s)
+    m = re.match(r'^(\d+)\s*BPM$', s)
     if m:
         return f"{int(m.group(1))} BPM"
-    if re.search(r'\\d+\\s*SECAO\\s*EMG', s):
-        num = re.search(r'(\\d+)', s).group(1)
+    if re.search(r'\d+\s*SECAO\s*EMG', s):
+        num = re.search(r'(\d+)', s).group(1)
         return f"{num}ª SECAO EMG"
     if 'CPMI' in s:
         return '3ª CPMI'
@@ -60,7 +60,7 @@ def clean_plate(x):
 def parse_currency(x):
     if pd.isna(x): return 0.0
     if isinstance(x, (int, float)): return float(x)
-    s = re.sub(r'[^0-9,\\.]', '', str(x))
+    s = re.sub(r'[^0-9,\.]', '', str(x))
     if s.count(',') and s.count('.'):
         s = s.replace('.', '').replace(',', '.')
     else:
@@ -223,24 +223,78 @@ with t3:
     summary['Vtr/Município'] = (summary['Viaturas']/summary['Municípios']).replace(np.inf,0).round(2)
     summary['Vtr/Bairro'] = (summary['Viaturas']/summary['Bairros']).replace(np.inf,0).round(2)
     st.dataframe(summary.fillna('NÃO LOCALIZADO'),use_container_width=True)
+
     st.divider()
-    st.subheader('📈 Sugestão de Redistribuição')
+    st.subheader('📈 Múltiplas Sugestões de Redistribuição')
+
     valid = summary[summary['Municípios']>0].copy()
     if valid.empty:
         st.write('Não há dados suficientes para sugestão.')
     else:
         valid['Dif'] = valid['Vtr/Município'] - valid['Vtr/Município'].mean()
-        if valid['Dif'].isnull().all():
-            st.write('Nenhuma variação para redistribuição.')
+        st.markdown(f"- Média Vtr/Município: **{truncar(valid['Vtr/Município'].mean()):.2f}**")
+
+        # SUGESTÃO 1: Todos acima para todos abaixo da média
+        acima = valid[valid['Dif'] > 0].sort_values('Dif', ascending=False)
+        abaixo = valid[valid['Dif'] < 0].sort_values('Dif')
+        transferencias = []
+        for idx_b, row_b in abaixo.iterrows():
+            diff_abaixo = abs(row_b['Dif'])
+            for idx_a, row_a in acima.iterrows():
+                diff_acima = acima.at[idx_a, 'Dif']
+                if diff_acima > 0 and diff_abaixo > 0:
+                    mover = int(min(diff_acima, diff_abaixo))
+                    if mover > 0:
+                        transferencias.append(
+                            f"→ Sugerido transferir **{mover} viatura(s)** de **{row_a['OPM']}** para **{row_b['OPM']}**."
+                        )
+                        acima.at[idx_a, 'Dif'] -= mover
+                        valid.at[idx_b, 'Dif'] += mover
+                        diff_abaixo -= mover
+        if transferencias:
+            for t in transferencias:
+                st.markdown(t)
         else:
-            high = valid.loc[valid['Dif'].idxmax()]
-            low = valid.loc[valid['Dif'].idxmin()]
-            moves = math.floor((high['Dif'] - low['Dif'])/2)
-            st.markdown(f"- Média Vtr/Município: **{truncar(valid['Vtr/Município'].mean()):.2f}**")
-            st.markdown(f"- **{high['OPM']}** está **{truncar(high['Dif']):.2f}** acima da média.")
-            st.markdown(f"- **{low['OPM']}** está **{truncar(low['Dif']):.2f}** abaixo da média.")
-            if moves>0:
-                st.markdown(f"→ Realocar **{moves}** viaturas de {high['OPM']} para {low['OPM']}.")
+            st.info('Nenhuma transferência adicional sugerida além do ajuste médio.')
+
+        st.divider()
+        # SUGESTÃO 2: Quem está acima/abaixo da média
+        st.markdown("#### 📝 Resumo Viaturas por OPM (Município)")
+        resumo = valid[['OPM', 'Viaturas', 'Municípios', 'Vtr/Município', 'Dif']].copy()
+        resumo['Situação'] = np.where(resumo['Dif'] > 0, 'Acima da média', 'Abaixo da média')
+        st.dataframe(resumo.sort_values('Dif', ascending=False).fillna('NÃO LOCALIZADO'), use_container_width=True)
+
+        # SUGESTÃO 3: Cobertura menor que 1 viatura por município
+        st.markdown("#### 🛑 OPMs com menos de 1 viatura por município:")
+        crit_mun = resumo[(resumo['Municípios'] > 0) & (resumo['Vtr/Município'] < 1)]
+        if crit_mun.empty:
+            st.write("Nenhuma OPM com cobertura inferior a 1 viatura por município.")
+        else:
+            st.dataframe(crit_mun[['OPM','Municípios','Viaturas','Vtr/Município']].fillna('NÃO LOCALIZADO'), use_container_width=True)
+
+    # SUGESTÃO 4: Análise por bairros (somente para OPMs de MACEIO)
+    st.divider()
+    st.markdown("#### 📝 Resumo Viaturas por OPM (Bairros de Maceió)")
+    resumo_bairros = summary[summary['Bairros'] > 0].copy()
+    resumo_bairros['Dif_bairro'] = resumo_bairros['Vtr/Bairro'] - resumo_bairros['Vtr/Bairro'].mean()
+    resumo_bairros['Situação'] = np.where(resumo_bairros['Dif_bairro'] > 0, 'Acima da média', 'Abaixo da média')
+    st.dataframe(resumo_bairros[['OPM', 'Viaturas', 'Bairros', 'Vtr/Bairro', 'Dif_bairro', 'Situação']].sort_values('Dif_bairro', ascending=False).fillna('NÃO LOCALIZADO'), use_container_width=True)
+
+    st.markdown("#### 🛑 OPMs com menos de 1 viatura por bairro:")
+    crit_bairro = resumo_bairros[(resumo_bairros['Bairros'] > 0) & (resumo_bairros['Vtr/Bairro'] < 1)]
+    if crit_bairro.empty:
+        st.write("Nenhuma OPM com cobertura inferior a 1 viatura por bairro.")
+    else:
+        st.dataframe(crit_bairro[['OPM','Bairros','Viaturas','Vtr/Bairro']].fillna('NÃO LOCALIZADO'), use_container_width=True)
+
+    # DOWNLOAD
+    st.divider()
+    st.markdown("#### ⬇️ Baixar Resumo de Viaturas por OPM")
+    resumo_csv = resumo.to_csv(index=False).encode('utf-8')
+    st.download_button("Baixar CSV Municípios", data=resumo_csv, file_name="redistribuicao_opm_municipios.csv", mime='text/csv')
+
+    resumo_bairros_csv = resumo_bairros.to_csv(index=False).encode('utf-8')
+    st.download_button("Baixar CSV Bairros", data=resumo_bairros_csv, file_name="redistribuicao_opm_bairros.csv", mime='text/csv')
 
 # -------- DETALHAMENTO --------
 with t4:
@@ -263,15 +317,12 @@ with t4:
 
     st.divider()
     st.subheader('🔄 Viaturas Abastecendo em Múltiplas OPMs')
-    multi_opm = df.groupby('PLACA')['OPM ABASTECIMENTO'].nunique().reset_index()
-    multi_opm = multi_opm[multi_opm['OPM ABASTECIMENTO'] > 1]
-    multi_opm = multi_opm.merge(
-        df[['PLACA', 'OPM ABASTECIMENTO']], on='PLACA', how='left'
-    ).drop_duplicates()
+    multi_opm = df.groupby('PLACA')['UNIDADE'].nunique().reset_index()
+    multi_opm = multi_opm[multi_opm['UNIDADE'] > 1]
     if not multi_opm.empty:
         multi_frotas = df[df['PLACA'].isin(multi_opm['PLACA'])]
         table_multi = multi_frotas.groupby('PLACA').agg(
-            OPMs=('OPM ABASTECIMENTO', lambda x: ', '.join(sorted(set(x))))
+            OPMs=('UNIDADE', lambda x: ', '.join(sorted(set(x))))
         ).reset_index()
         st.dataframe(table_multi, use_container_width=True)
     else:
