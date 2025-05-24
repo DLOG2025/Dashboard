@@ -8,7 +8,7 @@ from io import BytesIO
 
 # --- LINKS DAS PLANILHAS NO GITHUB ---
 url_efetivo = "https://github.com/DLOG2025/Dashboard/raw/main/BASE_EFETIVO_DLOG.xlsx"
-url_funcoes = "https://github.com/DLOG2025/Dashboard/raw/main/FUNÇÕES DE PRAÇAS COM BGO.xlsx"
+url_funcoes = "https://github.com/DLOG2025/Dashboard/raw/main/FUNCOES_DE_PRACAS_COM_BGO.xlsx"
 
 st.set_page_config(page_title="Efetivo – DLOG", page_icon="🪖", layout="wide")
 st.title("🪖 Efetivo da Diretoria de Logística – PMAL")
