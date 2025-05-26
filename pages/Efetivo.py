@@ -23,7 +23,7 @@ def carregar_dados():
 df_efetivo, df_funcoes, df_efetivo_geral = carregar_dados()
 
 # Definição das graduações
-ordem_grad = ["CEL", "TEN CEL", "MAJ", "CAP", "1º TEN", "2º TEN", 
+ordem_grad = ["CEL", "TEN CEL", "MAJ", "CAP", "1º TEN", "2º TEN",
               "SUBTENENTE", "1º SARGENTO", "2º SARGENTO", "3º SARGENTO", "CB", "SD"]
 
 # Ajuste e padronização das colunas
@@ -44,7 +44,7 @@ col3.metric("Vagas abertas", abertas.sum())
 col4.metric("Efetivo real atual", real.sum())
 
 # Gráfico comparativo ajustado
-st.subheader("📊 Comparativo de Vagas e Efetivo")
+st.subheader("📊 Comparativo de Vagas e Efetivo por Graduação (CEL ao SD)")
 df_comparativo = pd.DataFrame({
     "Graduação": ordem_grad,
     "Vagas Previstas": previstas.values,
@@ -67,9 +67,10 @@ fig_status = px.pie(status_df, names="Situação", values="Quantidade", hole=0.5
 st.plotly_chart(fig_status, use_container_width=True)
 
 # ✅ Classificados por setor (apenas praças em vaga superior)
-st.subheader("✅ Classificados por Setor")
+st.subheader("✅ Classificados por Setor (Praças ocupando vaga superior)")
 grad_order = {grad: idx for idx, grad in enumerate(ordem_grad)}
 
+# Função que define corretamente a classificação
 def get_status_ocupacao(row):
     pg = row["posto_grad"]
     pg_funcao = row["posto_grad_funcao"]
@@ -81,8 +82,15 @@ def get_status_ocupacao(row):
         return "VAGA CORRETA"
     else:
         return ""
-        
+
+df_efetivo["posto_grad"] = df_efetivo["posto_grad"].str.upper().str.strip()
+df_efetivo["posto_grad_funcao"] = df_efetivo["posto_grad_funcao"].str.upper().str.strip()
 df_efetivo["status_ocupacao"] = df_efetivo.apply(get_status_ocupacao, axis=1)
+
+classificados = df_efetivo[
+    (df_efetivo["categoria"] == "PRAÇA") &
+    (df_efetivo["posto_grad_funcao"] != "") &
+    (df_efetivo["status_ocupacao"] == "CLASSIFICADO")
 ]
 
 if not classificados.empty:
@@ -94,7 +102,7 @@ else:
     st.info("Não há praças ocupando vaga superior no momento.")
 
 # 🟣 Vagas abertas por Setor/Função corrigido
-st.subheader("🟣 Vagas Abertas por Setor")
+st.subheader("🟣 Vagas Abertas por Setor/Função")
 abertas_df = df_funcoes[df_funcoes["NOME DE GUERRA"] == ""]
 
 if not abertas_df.empty:
@@ -110,10 +118,7 @@ st.subheader("🔍 Busca Detalhada do Efetivo")
 busca_nome = st.text_input("Buscar (nome, matrícula, setor):").upper()
 status_filtro = st.multiselect("Filtrar por status", ["CLASSIFICADO", "VAGA CORRETA", "SEM BGO"], default=["CLASSIFICADO", "VAGA CORRETA", "SEM BGO"])
 
-df_efetivo["status_ocupacao"] = np.where(df_efetivo["posto_grad_funcao"] == "", "SEM BGO",
-                               np.where(df_efetivo["posto_grad"] == df_efetivo["posto_grad_funcao"], "VAGA CORRETA", "CLASSIFICADO"))
 filtro = df_efetivo["status_ocupacao"].isin(status_filtro)
-
 if busca_nome:
     filtro &= df_efetivo.apply(lambda row: busca_nome in row["nome"].upper() or busca_nome in row["matricula"].upper() or busca_nome in row["setor_funcional"].upper(), axis=1)
 
