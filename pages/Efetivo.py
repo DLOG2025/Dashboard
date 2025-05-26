@@ -70,13 +70,19 @@ st.plotly_chart(fig_status, use_container_width=True)
 st.subheader("✅ Classificados por Setor")
 grad_order = {grad: idx for idx, grad in enumerate(ordem_grad)}
 
-df_efetivo["posto_grad"] = df_efetivo["posto_grad"].str.upper().str.strip()
-df_efetivo["posto_grad_funcao"] = df_efetivo["posto_grad_funcao"].str.upper().str.strip()
-
-classificados = df_efetivo[
-    (df_efetivo["categoria"] == "PRAÇA") &
-    (df_efetivo["posto_grad_funcao"] != "") &
-    (df_efetivo.apply(lambda row: grad_order.get(row["posto_grad_funcao"], 99) < grad_order.get(row["posto_grad"], 99), axis=1))
+def get_status_ocupacao(row):
+    pg = row["posto_grad"]
+    pg_funcao = row["posto_grad_funcao"]
+    if pd.isna(pg_funcao) or pg_funcao == "":
+        return "SEM BGO"
+    elif grad_order.get(pg_funcao, 99) < grad_order.get(pg, 99):
+        return "CLASSIFICADO"
+    elif grad_order.get(pg_funcao, 99) == grad_order.get(pg, 99):
+        return "VAGA CORRETA"
+    else:
+        return ""
+        
+df_efetivo["status_ocupacao"] = df_efetivo.apply(get_status_ocupacao, axis=1)
 ]
 
 if not classificados.empty:
