@@ -27,11 +27,9 @@ ordem_grad = [
     "CEL", "TEN CEL", "MAJ", "CAP", "1º TEN", "2º TEN",
     "SUBTENENTE", "1º SARGENTO", "2º SARGENTO", "3º SARGENTO", "CB", "SD"
 ]
-# Padroniza nomes para caixa alta
 df_efetivo = df_efetivo.applymap(lambda x: x.upper().strip() if isinstance(x, str) else x)
 df_funcoes = df_funcoes.applymap(lambda x: x.upper().strip() if isinstance(x, str) else x)
 
-# Normaliza colunas principais de funções (ajusta nomes se necessário)
 col_grad = "GRADUAÇÃO DA FUNÇÃO" if "GRADUAÇÃO DA FUNÇÃO" in df_funcoes.columns else "GRADUAÇÃO"
 col_setor = "FUNÇÃO"
 col_nome = "NOME DE GUERRA"
@@ -41,6 +39,7 @@ col_vagas = "QUANTIDADE DE VAGAS POR GRADUAÇÃO" if "QUANTIDADE DE VAGAS POR GR
 # --- CÁLCULO DE VAGAS E OCUPAÇÃO ---
 df_funcoes["OCUPADA"] = df_funcoes[col_nome] != ""
 df_funcoes["ABERTA"] = df_funcoes[col_nome] == ""
+
 # Calcula vagas por graduação/setor
 kpi_qtd_vagas = df_funcoes.groupby(col_grad).size().reindex(ordem_grad, fill_value=0)
 kpi_qtd_ocupadas = df_funcoes[df_funcoes["OCUPADA"]].groupby(col_grad).size().reindex(ordem_grad, fill_value=0)
@@ -51,10 +50,17 @@ total_aberta = df_funcoes["ABERTA"].sum()
 
 # --- CRUZAMENTO: EFETIVO REAL × VAGAS PREVISTAS/OCUPADAS ---
 efetivo_real = df_efetivo.groupby("posto_grad").size().reindex(ordem_grad, fill_value=0)
+# Corrige CLASSIFICADO: só praças em função de graduação superior
+def superior(grad_praça, grad_funcao):
+    try:
+        return ordem_grad.index(grad_funcao) < ordem_grad.index(grad_praça)
+    except:
+        return False
+
 df_efetivo["CLASSIFICADO"] = (
     (df_efetivo["categoria"] == "PRAÇA") &
-    (df_efetivo["posto_grad"] != df_efetivo["posto_grad_funcao"]) &
-    (df_efetivo["posto_grad_funcao"] != "")
+    (df_efetivo["posto_grad_funcao"] != "") &
+    df_efetivo.apply(lambda row: superior(row["posto_grad"], row["posto_grad_funcao"]), axis=1)
 )
 
 # --- KPIs SUPERIORES ---
@@ -63,7 +69,7 @@ col1.metric("Efetivo previsto", total_prevista)
 col2.metric("Ocupadas", int(total_ocupada))
 col3.metric("Abertas", int(total_aberta))
 col4.metric("Efetivo real (todos)", int(len(df_efetivo)))
-col5.metric("Classificados", int(df_efetivo["CLASSIFICADO"].sum()))
+col5.metric("Classificados (apenas praças acima da graduação)", int(df_efetivo["CLASSIFICADO"].sum()))
 
 # --- GRÁFICO DE BARRAS: PREVISTO × OCUPADO × ABERTO × REAL ---
 st.subheader("📊 Comparativo de Vagas e Efetivo por Graduação (CEL ao SD)")
@@ -97,14 +103,21 @@ fig2 = px.pie(donut_df, names="Status", values="Quantidade", hole=0.5, color="St
               color_discrete_map={"OCUPADAS": "#00CC96", "ABERTAS": "#EF553B"})
 st.plotly_chart(fig2, use_container_width=True)
 
-# --- HEATMAP: VAGAS PREVISTAS POR FUNÇÃO X GRADUAÇÃO ---
-st.subheader("🔵 Heatmap de Vagas Previstas por Função x Graduação")
+# --- TABELA OU GRÁFICO MELHORADO: VAGAS POR FUNÇÃO X GRADUAÇÃO ---
+st.subheader("🔵 Vagas Previstas por Função x Graduação (apenas onde há vagas)")
 pivot = pd.pivot_table(
     df_funcoes, values="OCUPADA", index=col_setor, columns=col_grad,
     aggfunc="count", fill_value=0
 ).reindex(columns=ordem_grad, fill_value=0)
-fig3 = px.imshow(pivot, color_continuous_scale="plasma", aspect="auto", text_auto=True)
-st.plotly_chart(fig3, use_container_width=True)
+pivot = pivot.loc[(pivot.sum(axis=1) > 0)]  # Exibe só funções que possuem vagas
+
+# Exibe como tabela dinâmica (com rolagem)
+st.dataframe(pivot, use_container_width=True, height=450)
+
+# Também pode exibir gráfico de barras agrupadas (se preferir)
+# fig3 = px.bar(pivot.reset_index().melt(id_vars=col_setor, var_name='Graduação', value_name='Vagas'),
+#               x=col_setor, y='Vagas', color='Graduação', barmode='group')
+# st.plotly_chart(fig3, use_container_width=True)
 
 # --- CLASSIFICADOS POR SETOR ---
 st.subheader("✅ Classificados por Setor (Praças ocupando vaga superior)")
@@ -113,7 +126,6 @@ if not classificados.empty:
     tab_class = classificados.groupby(["setor_funcional", "nome", "posto_grad", "posto_grad_funcao"])[["categoria", "matricula"]].first().reset_index()
     tab_class = tab_class.rename(columns={"setor_funcional": "Setor", "nome": "Nome", "posto_grad": "Graduação", "posto_grad_funcao": "Vaga Ocupada", "matricula": "Matrícula", "categoria": "Categoria"})
     st.dataframe(tab_class, use_container_width=True)
-    # Botão de download
     csv_class = tab_class.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Baixar lista de Classificados (CSV)", data=csv_class, file_name="classificados_por_setor.csv", mime="text/csv")
 else:
@@ -123,10 +135,9 @@ else:
 st.subheader("🟣 Vagas Abertas por Setor/Função")
 abertas = df_funcoes[df_funcoes["ABERTA"]]
 if not abertas.empty:
-    tab_abertas = abertas[[col_grad, col_setor]].copy()
+    tab_abertas = abertas.groupby([col_setor, col_grad]).size().reset_index(name="Quantidade de Vagas Abertas")
     tab_abertas = tab_abertas.rename(columns={col_grad: "Graduação da vaga", col_setor: "Função/Sector"})
     st.dataframe(tab_abertas, use_container_width=True)
-    # Botão de download
     csv_abertas = tab_abertas.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Baixar vagas abertas (CSV)", data=csv_abertas, file_name="vagas_abertas.csv", mime="text/csv")
 else:
@@ -145,7 +156,6 @@ if busca_nome:
     busca = busca_nome.upper()
     filt &= df_efetivo.apply(lambda row: busca in row["nome"] or busca in row["matricula"] or busca in row["setor_funcional"], axis=1)
 tabela_final = df_efetivo[filt].copy()
-# Reorganizar colunas: posto_grad antes do nome, remove hierarquia_nivel se existir
 cols_show = ["posto_grad", "nome", "nome_guerra", "categoria", "matricula", "quadro", "setor_funcional",
              "lotacao", "bgo_designacao", "posto_grad_funcao", "funcao_qo", "status_ocupacao"]
 cols_show = [c for c in cols_show if c in tabela_final.columns]
@@ -153,21 +163,19 @@ tabela_final = tabela_final[cols_show]
 
 # AgGrid visual
 gb = GridOptionsBuilder.from_dataframe(tabela_final)
-gb.configure_pagination()
+gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=30)
 gb.configure_default_column(editable=False, groupable=True, resizable=True)
 gb.configure_side_bar()
 gb.configure_selection('multiple', use_checkbox=True)
 gridOptions = gb.build()
-AgGrid(tabela_final, gridOptions=gridOptions, enable_enterprise_modules=True, theme='alpine', height=400)
+AgGrid(tabela_final, gridOptions=gridOptions, enable_enterprise_modules=True, theme='alpine', height=1000)
 
-# Exportar CSV, XLSX, PDF
 csv_final = tabela_final.to_csv(index=False).encode("utf-8")
 st.download_button("⬇️ Baixar tabela filtrada (CSV)", data=csv_final, file_name="Efetivo_DLOG.csv", mime="text/csv")
 excel_buf = BytesIO()
 tabela_final.to_excel(excel_buf, index=False, engine="openpyxl")
 st.download_button("⬇️ Baixar tabela filtrada (XLSX)", data=excel_buf.getvalue(), file_name="Efetivo_DLOG.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# PDF exportação simples
 def export_pdf(df_pdf):
     pdf = FPDF()
     pdf.add_page()
