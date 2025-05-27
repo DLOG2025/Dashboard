@@ -1,6 +1,11 @@
 import streamlit as st
 import streamlit as st
-
+import pandas as pd
+import plotly.express as px
+import numpy as np
+import math
+import unicodedata
+import re
 st.set_page_config(page_title="Efetivo", page_icon="🪖", layout="wide")
 
 # --- Botão HOME menor e estilizado ---
@@ -39,13 +44,6 @@ st.markdown('<a href="/" class="home-btn" target="_self">HOME</a>', unsafe_allow
 # Agora começa o resto do seu dashboard:
 st.title("DLOG PMAL – Efetivo")
 # ...coloque aqui todos os seus gráficos, tabelas etc.
-
-import pandas as pd
-import plotly.express as px
-import numpy as np
-import math
-import unicodedata
-import re
 
 PAGE_TITLE = "🚓 DASHBOARD_VIATURAS - DLOG"
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
