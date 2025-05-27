@@ -42,5 +42,5 @@ with col2:
     st.page_link("pages/viaturas.py", label="🚓 Dashboard de Viaturas", icon="🚓")
 
 st.write("")
-st.caption("Desenvolvido por DLOG/PMAL | 2024")
+st.caption("Desenvolvido por DLOG/PMAL | 2025")
 
