@@ -31,7 +31,7 @@ st.markdown(
 
 # Título e subtítulo
 st.markdown("<h1 style='color:#fff;'>DLOG PMAL</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='color:#fff;font-weight:300;'>Dashboard Integrado – Diretoria de Logística</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='color:#fff;font-weight:300;'>Diretoria de Logística</h3>", unsafe_allow_html=True)
 st.write("")
 
 # Botões para navegar entre páginas
