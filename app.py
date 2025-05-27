@@ -68,7 +68,7 @@ st.markdown(
 )
 
 st.markdown("<h1>DLOG PMAL</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='font-weight:300;'>Dashboard Integrado – Diretoria de Logística</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='font-weight:300;'>Diretoria de Logística</h3>", unsafe_allow_html=True)
 st.write("")
 
 # Botões grandes centralizados, sem sublinhado, sem emoji, texto maiúsculo
