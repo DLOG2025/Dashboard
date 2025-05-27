@@ -1,14 +1,17 @@
 import streamlit as st
-import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
 import math
 import unicodedata
 import re
-st.set_page_config(page_title="Efetivo", page_icon="🪖", layout="wide")
 
-# --- Botão HOME menor e estilizado ---
+st.set_page_config(page_title="Viaturas", page_icon="🚓", layout="wide")
+
+PAGE_TITLE = "🚓 DASHBOARD_VIATURAS - DLOG"
+st.title(PAGE_TITLE)
+
+# --- Botão HOME estilizado menor ---
 st.markdown("""
     <style>
     .home-btn {
@@ -38,16 +41,7 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
 st.markdown('<a href="/" class="home-btn" target="_self">HOME</a>', unsafe_allow_html=True)
-
-# Agora começa o resto do seu dashboard:
-st.title("DLOG PMAL – Efetivo")
-# ...coloque aqui todos os seus gráficos, tabelas etc.
-
-PAGE_TITLE = "🚓 DASHBOARD_VIATURAS - DLOG"
-st.set_page_config(page_title=PAGE_TITLE, layout="wide")
-st.title(PAGE_TITLE)
 
 # ---------- URLs dos arquivos ----------
 URL_ABAST = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/Abastecimentos_Consolidados.xlsx"
@@ -74,18 +68,12 @@ def normalize_text(s):
     return ''.join(c for c in nk if not unicodedata.combining(c))
 
 def unify_opm(name):
-    # Função padronizada para respeitar o número da CPMI, sem fixar para "3ª CPMI"
     if pd.isna(name): return name
     raw = normalize_text(name)
-    # remove letras ou ordinais grudados ao número
     raw = re.sub(r'(?<=\d)[A-Za-zºª°]+', '', raw)
-    # padroniza CPMI com número correto (ex: "3 CPMI" -> "3 CPMI", "4ª CPMI" -> "4 CPMI")
     raw = re.sub(r'(\d+)\W*CPM\W*I', lambda m: f"{int(m.group(1))} CPMI", raw, flags=re.IGNORECASE)
-    # padroniza BPM
     raw = re.sub(r'(\d+)\W*BPM', lambda m: f"{int(m.group(1))} BPM", raw, flags=re.IGNORECASE)
-    # padroniza SECAO EMG
     raw = re.sub(r'(\d+)\W*SECAO\W*EMG', lambda m: f"{int(m.group(1))} SECAO EMG", raw, flags=re.IGNORECASE)
-    # remove barras, pontos, traços, etc.
     raw = raw.replace('/', ' ')
     raw = re.sub(r'[^A-Za-z0-9 ]', ' ', raw)
     s = ' '.join(raw.split()).upper()
