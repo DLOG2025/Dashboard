@@ -1,4 +1,45 @@
 import streamlit as st
+import streamlit as st
+
+st.set_page_config(page_title="Efetivo", page_icon="🪖", layout="wide")
+
+# --- Botão HOME menor e estilizado ---
+st.markdown("""
+    <style>
+    .home-btn {
+        display: inline-block;
+        width: 140px;
+        height: 54px;
+        margin: 10px 0 32px 0;
+        background: #0A2342;
+        color: #fff !important;
+        font-size: 1.2rem;
+        font-weight: bold;
+        border: none;
+        border-radius: 14px;
+        text-align: center;
+        line-height: 54px;
+        text-decoration: none !important;
+        box-shadow: 0 4px 16px 0 rgba(0,0,0,0.10);
+        letter-spacing: 2px;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .home-btn:hover {
+        background: #10336B;
+        color: #f9dc5c !important;
+        transform: scale(1.04);
+        text-decoration: none !important;
+        cursor: pointer;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<a href="/" class="home-btn" target="_self">HOME</a>', unsafe_allow_html=True)
+
+# Agora começa o resto do seu dashboard:
+st.title("DLOG PMAL – Efetivo")
+# ...coloque aqui todos os seus gráficos, tabelas etc.
+
 import pandas as pd
 import plotly.express as px
 import numpy as np
