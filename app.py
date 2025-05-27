@@ -1,9 +1,8 @@
 import streamlit as st
 
-# Configuração da página
 st.set_page_config(page_title="DLOG PMAL - Home", page_icon="🛡️", layout="wide")
 
-# CSS para imagem de fundo (ajuste o link se mudar a imagem!)
+# CSS personalizado
 st.markdown(
     """
     <style>
@@ -13,34 +12,50 @@ st.markdown(
         background-position: center;
         min-height: 100vh;
     }
-    /* Deixa os elementos de fundo transparentes */
-    .block-container {
-        background: rgba(0, 0, 0, 0.15);
-        border-radius: 12px;
-        padding: 2rem;
-        margin-top: 3rem;
-    }
-    h1, h2, h3, h4, h5, h6, .stTextInput label, .stButton>button, .stRadio label {
+    .custom-btn {
+        display: inline-block;
+        width: 320px;
+        height: 160px;
+        margin: 40px;
+        background: #0A2342;
         color: #fff !important;
-        text-shadow: 2px 2px 6px #222;
+        font-size: 2rem;
+        font-weight: bold;
+        border: none;
+        border-radius: 22px;
+        text-align: center;
+        vertical-align: middle;
+        text-decoration: none;
+        box-shadow: 0 6px 24px 0 rgba(0,0,0,0.20);
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .custom-btn:hover {
+        background: #10336B;
+        transform: scale(1.04);
+        box-shadow: 0 10px 40px 0 rgba(0,0,0,0.28);
+        color: #f9dc5c !important;
+        cursor: pointer;
+    }
+    .center-btns {
+        text-align: center;
+        margin-top: 5rem;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# Título e subtítulo
 st.markdown("<h1 style='color:#fff;'>DLOG PMAL</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='color:#fff;font-weight:300;'>Diretoria de Logística</h3>", unsafe_allow_html=True)
 st.write("")
 
-# Botões para navegar entre páginas
-col1, col2 = st.columns(2)
-with col1:
-    st.page_link("pages/efetivo.py", label="🪖 Dashboard de Efetivo", icon="🪖")
-with col2:
-    st.page_link("pages/viaturas.py", label="🚓 Dashboard de Viaturas", icon="🚓")
+# Botões grandes centralizados
+st.markdown('<div class="center-btns">', unsafe_allow_html=True)
+st.markdown(f"""
+    <a href="/efetivo" class="custom-btn" target="_self">🪖<br>Dashboard<br>de Efetivo</a>
+    <a href="/viaturas" class="custom-btn" target="_self">🚓<br>Dashboard<br>de Viaturas</a>
+""", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 st.write("")
-st.caption("Desenvolvido por DLOG/PMAL | 2025")
-
+st.caption("Desenvolvido pela Secretaria - DLOG/PMAL | 2025")
