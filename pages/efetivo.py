@@ -93,6 +93,27 @@ df_efetivo_dlog = df_efetivo_unique[df_efetivo_unique["SETOR"].str.upper().isin(
 efetivo_setor = df_efetivo_dlog.groupby("SETOR")["NOME"].count().reset_index(name="Quantidade")
 st.dataframe(efetivo_setor, use_container_width=True)
 
+st.subheader("📋 Quantidade de Militares por P/G e Setor DLOG")
+
+if "P/G" in df_efetivo.columns and "SETOR" in df_efetivo.columns:
+    df_efetivo["P/G"] = df_efetivo["P/G"].str.upper().str.strip()
+    df_efetivo["SETOR"] = df_efetivo["SETOR"].str.upper().str.strip()
+    df_dlog = df_efetivo[df_efetivo["SETOR"].isin([s.upper() for s in setores_dlog])]
+    tabela = pd.pivot_table(
+        df_dlog,
+        index="P/G",
+        columns="SETOR",
+        values="NOME",
+        aggfunc="count",
+        fill_value=0
+    ).reindex(ordem_grad, fill_value=0)
+    tabela["TOTAL"] = tabela.sum(axis=1)
+    total_row = pd.DataFrame([tabela.sum(axis=0)], index=["TOTAL"])
+    tabela = pd.concat([tabela, total_row])
+    st.dataframe(tabela.astype(int), use_container_width=True)
+else:
+    st.warning("Colunas 'P/G' e/ou 'SETOR' não encontradas nos dados.")
+
 # (Opcional: Mostra militares em outros setores)
 df_efetivo_otros = df_efetivo_unique[~df_efetivo_unique["SETOR"].str.upper().isin([s.upper() for s in setores_dlog])]
 if not df_efetivo_otros.empty:
@@ -121,41 +142,6 @@ else:
 
 colunas_mostrar = [col for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "GRADUAÇÃO DA FUNÇÃO"] if col in df_filtrado.columns]
 st.dataframe(df_filtrado[colunas_mostrar], use_container_width=True)
-
-st.subheader("📋 Quantidade de Militares por P/G")
-
-# Lista de quadros conhecidos (ajuste se precisar)
-lista_quadros = ["QOEM", "QOE", "QP"]
-
-if "P/G" in df_efetivo.columns and "QUADRC" in df_efetivo.columns:
-    df_efetivo["QUADRC"] = df_efetivo["QUADRC"].str.upper().str.strip()
-    df_efetivo["P/G"] = df_efetivo["P/G"].str.upper().str.strip()
-    
-    # Só considera quadros conhecidos
-    df_q = df_efetivo[df_efetivo["QUADRC"].isin(lista_quadros)]
-    
-    # Gera tabela cruzada
-    tabela = pd.pivot_table(
-        df_q,
-        index="P/G",
-        columns="QUADRC",
-        values="NOME",
-        aggfunc="count",
-        fill_value=0
-    ).reset_index()
-    # Ordena pela hierarquia
-    tabela["Ordem"] = tabela["P/G"].apply(lambda x: ordem_grad.index(x) if x in ordem_grad else 99)
-    tabela = tabela.sort_values("Ordem").drop("Ordem", axis=1)
-    # Adiciona coluna de totais horizontais
-    tabela["TOTAL"] = tabela[lista_quadros].sum(axis=1)
-    # Adiciona linha total geral
-    total_row = pd.DataFrame([["TOTAL"] + [tabela[q].sum() for q in lista_quadros] + [tabela["TOTAL"].sum()]],
-                             columns=["P/G"] + lista_quadros + ["TOTAL"])
-    tabela = pd.concat([tabela, total_row], ignore_index=True)
-    st.dataframe(tabela, use_container_width=True)
-else:
-    st.warning("Colunas 'P/G' e/ou 'QUADRC' não encontradas nos dados.")
-
 
 # --- Rodapé centralizado ---
 st.markdown("""
