@@ -122,6 +122,41 @@ else:
 colunas_mostrar = [col for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "GRADUAÇÃO DA FUNÇÃO"] if col in df_filtrado.columns]
 st.dataframe(df_filtrado[colunas_mostrar], use_container_width=True)
 
+st.subheader("📋 Quantidade de Militares por P/G")
+
+# Lista de quadros conhecidos (ajuste se precisar)
+lista_quadros = ["QOEM", "QOE", "QP"]
+
+if "P/G" in df_efetivo.columns and "QUADRC" in df_efetivo.columns:
+    df_efetivo["QUADRC"] = df_efetivo["QUADRC"].str.upper().str.strip()
+    df_efetivo["P/G"] = df_efetivo["P/G"].str.upper().str.strip()
+    
+    # Só considera quadros conhecidos
+    df_q = df_efetivo[df_efetivo["QUADRC"].isin(lista_quadros)]
+    
+    # Gera tabela cruzada
+    tabela = pd.pivot_table(
+        df_q,
+        index="P/G",
+        columns="QUADRC",
+        values="NOME",
+        aggfunc="count",
+        fill_value=0
+    ).reset_index()
+    # Ordena pela hierarquia
+    tabela["Ordem"] = tabela["P/G"].apply(lambda x: ordem_grad.index(x) if x in ordem_grad else 99)
+    tabela = tabela.sort_values("Ordem").drop("Ordem", axis=1)
+    # Adiciona coluna de totais horizontais
+    tabela["TOTAL"] = tabela[lista_quadros].sum(axis=1)
+    # Adiciona linha total geral
+    total_row = pd.DataFrame([["TOTAL"] + [tabela[q].sum() for q in lista_quadros] + [tabela["TOTAL"].sum()]],
+                             columns=["P/G"] + lista_quadros + ["TOTAL"])
+    tabela = pd.concat([tabela, total_row], ignore_index=True)
+    st.dataframe(tabela, use_container_width=True)
+else:
+    st.warning("Colunas 'P/G' e/ou 'QUADRC' não encontradas nos dados.")
+
+
 # --- Rodapé centralizado ---
 st.markdown("""
     <div style="position: fixed; left: 0; bottom: 0; width: 100vw; background: rgba(255,255,255,0.0);
