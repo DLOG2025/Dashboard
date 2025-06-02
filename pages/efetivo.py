@@ -77,27 +77,13 @@ st.divider()
 
 # --- Efetivo por Posto/Graduação (Ordem Hierárquica, sem duplicidade) ---
 st.subheader("📊 Efetivo por Posto/Graduação")
-ordem_grad = ["CEL", "TEN CEL", "MAJ", "CAP", "1º TEN", "2º TEN",
-              "SUBTENENTE", "1º SARGENTO", "2º SARGENTO", "3º SARGENTO", "CB", "SD"]
-
 if "P/G" in df_efetivo.columns:
     efetivo_grad = df_efetivo["P/G"].value_counts().reset_index()
     efetivo_grad.columns = ["Posto/Graduação", "Quantidade"]
-    # Mantém apenas os presentes na ordem hierárquica e reordena
-    efetivo_grad = efetivo_grad[efetivo_grad["Posto/Graduação"].isin(ordem_grad)]
-    efetivo_grad["Ordem"] = efetivo_grad["Posto/Graduação"].apply(lambda x: ordem_grad.index(x))
-    efetivo_grad = efetivo_grad.sort_values("Ordem")
-    fig_grad = px.bar(
-        efetivo_grad,
-        x="Posto/Graduação",
-        y="Quantidade",
-        color="Posto/Graduação",
-        title="Distribuição por Graduação (Ordem Hierárquica)"
-    )
+    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação", title="Distribuição por Graduação")
     st.plotly_chart(fig_grad, use_container_width=True)
 else:
     st.warning("Coluna 'P/G' não encontrada nos dados do efetivo.")
-
 
 st.divider()
 
