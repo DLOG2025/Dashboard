@@ -77,12 +77,10 @@ st.divider()
 
 # --- Efetivo por Posto/Graduação (Ordem Hierárquica, sem duplicidade) ---
 st.subheader("📊 Efetivo por Posto/Graduação")
-if "P/G" in df_efetivo_unique.columns:
-    efetivo_grad = df_efetivo_unique["P/G"].value_counts().reindex(ordem_grad, fill_value=0).reset_index()
+if "P/G" in df_efetivo.columns:
+    efetivo_grad = df_efetivo["P/G"].value_counts().reset_index()
     efetivo_grad.columns = ["Posto/Graduação", "Quantidade"]
-    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação",
-                      category_orders={"Posto/Graduação": ordem_grad},
-                      title="Distribuição por Graduação (Ordem Hierárquica)")
+    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação", title="Distribuição por Graduação")
     st.plotly_chart(fig_grad, use_container_width=True)
 else:
     st.warning("Coluna 'P/G' não encontrada nos dados do efetivo.")
@@ -104,7 +102,7 @@ if not df_efetivo_otros.empty:
 st.divider()
 
 # --- Busca Detalhada do Efetivo ---
-st.subheader("🔎 Busca Detalhada do Efetivo (Privacidade Garantida)")
+st.subheader("🔎 Busca Detalhada do Efetivo")
 busca_nome = st.text_input("Buscar por nome, posto/graduação, setor ou lotação:").upper()
 
 # Adiciona a graduação/posto da função ocupada (merge pelo nome de guerra, se possível)
