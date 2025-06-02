@@ -36,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown('<a href="/" class="home-btn" target="_self">HOME</a>', unsafe_allow_html=True)
 
-# ---- CONFIGURAR OS LINKS ABAIXO COM SEUS ARQUIVOS .xlsx ----
+# ---- Configuração dos arquivos ----
 URL_EFETIVO = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/EFETIVO_GERAL_DA_DLOG%20.xlsx"
 URL_FUNCOES = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/FUNCOES_DE_PRACAS_COM_BGO.xlsx"
 
@@ -48,71 +48,83 @@ def load_data():
 
 df_efetivo, df_funcoes = load_data()
 
-# Normaliza colunas
+# --- Normaliza nomes de colunas ---
 df_efetivo.columns = df_efetivo.columns.str.upper().str.strip()
 df_funcoes.columns = df_funcoes.columns.str.upper().str.strip()
 
-# --- Exibe KPIs básicos ---
+# --- ORDEM HIERÁRQUICA (Cel ao Sd) ---
+ordem_grad = ["CEL", "TEN CEL", "MAJ", "CAP", "1º TEN", "2º TEN",
+              "SUBTENENTE", "1º SARGENTO", "2º SARGENTO", "3º SARGENTO", "CB", "SD"]
+
+# --- Setores oficiais da DLOG ---
+setores_dlog = [
+    "DLOG 1", "DLOG 2", "DLOG 3", "DLOG 4", "DLOG 5", "DLOG 6",
+    "CMM", "CMO", "CMB", "DIRETORIA", "SUBDIRETORIA", "SECRETARIA"
+]
+
+# --- Remove duplicidades por nome completo ---
+df_efetivo_unique = df_efetivo.drop_duplicates(subset=["NOME"])
+
+# --- KPIs básicos ---
 st.subheader("✨ Indicadores Gerais")
-total_efetivo = len(df_efetivo)
-total_setores = df_efetivo["SETOR"].nunique() if "SETOR" in df_efetivo.columns else "-"
+total_efetivo = len(df_efetivo_unique)
+total_setores = df_efetivo_unique["SETOR"].str.upper().isin([s.upper() for s in setores_dlog]).sum()
 col1, col2 = st.columns(2)
-col1.metric("Efetivo Atual", total_efetivo)
-col2.metric("Setores Existentes", total_setores)
+col1.metric("Efetivo Atual (únicos)", total_efetivo)
+col2.metric("Militares em setores DLOG", total_setores)
 
 st.divider()
 
-# --- Exibe Efetivo por Setor (tabela) ---
-st.subheader("👥 Efetivo por Setor")
-if "SETOR" in df_efetivo.columns:
-    efetivo_setor = df_efetivo.groupby("SETOR")["NOME"].count().reset_index(name="Quantidade")
-    st.dataframe(efetivo_setor, use_container_width=True)
-else:
-    st.warning("Coluna 'SETOR' não encontrada nos dados do efetivo.")
-
-st.divider()
-
-# --- Gráfico de Efetivo por Posto/Graduação ---
+# --- Efetivo por Posto/Graduação (Ordem Hierárquica, sem duplicidade) ---
 st.subheader("📊 Efetivo por Posto/Graduação")
-if "P/G" in df_efetivo.columns:
-    efetivo_grad = df_efetivo["P/G"].value_counts().reset_index()
+if "P/G" in df_efetivo_unique.columns:
+    efetivo_grad = df_efetivo_unique["P/G"].value_counts().reindex(ordem_grad, fill_value=0).reset_index()
     efetivo_grad.columns = ["Posto/Graduação", "Quantidade"]
-    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação", title="Distribuição por Graduação")
+    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação",
+                      category_orders={"Posto/Graduação": ordem_grad},
+                      title="Distribuição por Graduação (Ordem Hierárquica)")
     st.plotly_chart(fig_grad, use_container_width=True)
 else:
     st.warning("Coluna 'P/G' não encontrada nos dados do efetivo.")
 
 st.divider()
 
-# --- Busca Detalhada (com informações permitidas) ---
+# --- Efetivo por Setor (apenas setores oficiais DLOG) ---
+st.subheader("👥 Efetivo por Setor")
+df_efetivo_dlog = df_efetivo_unique[df_efetivo_unique["SETOR"].str.upper().isin([s.upper() for s in setores_dlog])]
+efetivo_setor = df_efetivo_dlog.groupby("SETOR")["NOME"].count().reset_index(name="Quantidade")
+st.dataframe(efetivo_setor, use_container_width=True)
+
+# (Opcional: Mostra militares em outros setores)
+df_efetivo_otros = df_efetivo_unique[~df_efetivo_unique["SETOR"].str.upper().isin([s.upper() for s in setores_dlog])]
+if not df_efetivo_otros.empty:
+    st.markdown("#### 👥 Efetivo lotado na DLOG, mas atuando em outros setores/locais:")
+    st.dataframe(df_efetivo_otros[["NOME", "P/G", "SETOR", "LOTAÇÃO"]], use_container_width=True)
+
+st.divider()
+
+# --- Busca Detalhada do Efetivo ---
 st.subheader("🔎 Busca Detalhada do Efetivo (Privacidade Garantida)")
 busca_nome = st.text_input("Buscar por nome, posto/graduação, setor ou lotação:").upper()
 
-colunas_exibir = []
-for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "POSTO_GRAD_FUNCAO", "GRADUAÇÃO DA FUNÇÃO", "POSTO_GRAD_FUNÇÃO"]:
-    if col in df_efetivo.columns:
-        colunas_exibir.append(col)
-    elif col in df_funcoes.columns:
-        colunas_exibir.append(col)
+# Adiciona a graduação/posto da função ocupada (merge pelo nome de guerra, se possível)
+df_result = df_efetivo_unique.copy()
+if "N GUERRA" in df_efetivo_unique.columns and "NOME DE GUERRA" in df_funcoes.columns and "GRADUAÇÃO DA FUNÇÃO" in df_funcoes.columns:
+    df_result = df_result.merge(df_funcoes[["NOME DE GUERRA", "GRADUAÇÃO DA FUNÇÃO"]],
+                                left_on="N GUERRA", right_on="NOME DE GUERRA", how="left")
 
-# Mescla informações da função ocupada (se disponível)
-if "NOME" in df_efetivo.columns and "NOME DE GUERRA" in df_funcoes.columns and "GRADUAÇÃO DA FUNÇÃO" in df_funcoes.columns:
-    df_efetivo = df_efetivo.merge(df_funcoes[["NOME DE GUERRA", "GRADUAÇÃO DA FUNÇÃO"]],
-                                  left_on="N GUERRA", right_on="NOME DE GUERRA", how="left")
-
-# Filtro por busca (nome, graduação, setor, lotação)
+# Filtro de busca
 if busca_nome:
-    df_filtrado = df_efetivo[
-        df_efetivo.apply(lambda row: any(busca_nome in str(row[c]).upper() for c in ["NOME", "P/G", "SETOR", "LOTAÇÃO"] if c in row), axis=1)
+    df_filtrado = df_result[
+        df_result.apply(lambda row: any(busca_nome in str(row[c]).upper() for c in ["NOME", "P/G", "SETOR", "LOTAÇÃO"] if c in row), axis=1)
     ]
 else:
-    df_filtrado = df_efetivo.copy()
+    df_filtrado = df_result.copy()
 
-# Exibe apenas colunas permitidas
 colunas_mostrar = [col for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "GRADUAÇÃO DA FUNÇÃO"] if col in df_filtrado.columns]
 st.dataframe(df_filtrado[colunas_mostrar], use_container_width=True)
 
-# Rodapé centralizado
+# --- Rodapé centralizado ---
 st.markdown("""
     <div style="position: fixed; left: 0; bottom: 0; width: 100vw; background: rgba(255,255,255,0.0);
     text-align: center; padding: 18px 0 10px 0; font-size: 1.1rem; color: #0A2342 !important;
