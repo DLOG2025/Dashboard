@@ -1,9 +1,10 @@
 import streamlit as st
-import streamlit as st
+import pandas as pd
+import plotly.express as px
 
 st.set_page_config(page_title="Efetivo", page_icon="🪖", layout="wide")
 
-# --- Botão HOME menor e estilizado ---
+# --- Botão HOME estilizado menor ---
 st.markdown("""
     <style>
     .home-btn {
@@ -33,75 +34,89 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
 st.markdown('<a href="/" class="home-btn" target="_self">HOME</a>', unsafe_allow_html=True)
 
-# Agora começa o resto do seu dashboard:
-st.title("DLOG PMAL – Efetivo")
-# ...coloque aqui todos os seus gráficos, tabelas etc.
+# ---- CONFIGURAR OS LINKS ABAIXO COM SEUS ARQUIVOS .xlsx ----
+URL_EFETIVO = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/EFETIVO_GERAL_DA_DLOG%20.xlsx"
+URL_FUNCOES = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/FUNCOES_DE_PRACAS_COM_BGO.xlsx"
 
-import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder
-
-# URLs dos arquivos
-url_oficiais = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/OFICIAIS.xlsx"
-url_pracas = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/PRA%C3%87AS.xlsx"
-url_efetivo_geral = "https://github.com/DLOG2025/Dashboard/raw/refs/heads/main/EFETIVO_GERAL_DA_DLOG%20.xlsx"
-
-# Carregar os dados
 @st.cache_data
-def carregar_efetivo():
-    df_oficiais = pd.read_excel(url_oficiais, dtype=str).fillna("")
-    df_pracas = pd.read_excel(url_pracas, dtype=str).fillna("")
-    df_efetivo_geral = pd.read_excel(url_efetivo_geral, dtype=str).fillna("")
-    # Padroniza nomes das colunas para facilitar concatenação
-    df_oficiais.columns = df_oficiais.columns.str.upper().str.strip()
-    df_pracas.columns = df_pracas.columns.str.upper().str.strip()
-    df_efetivo_geral.columns = df_efetivo_geral.columns.str.upper().str.strip()
-    return df_oficiais, df_pracas, df_efetivo_geral
+def load_data():
+    df_efetivo = pd.read_excel(URL_EFETIVO, dtype=str).fillna("")
+    df_funcoes = pd.read_excel(URL_FUNCOES, dtype=str).fillna("")
+    return df_efetivo, df_funcoes
 
-df_oficiais, df_pracas, df_efetivo_geral = carregar_efetivo()
+df_efetivo, df_funcoes = load_data()
 
-# Unifica tudo numa tabela (todas as colunas possíveis)
-df_busca = pd.concat([df_oficiais, df_pracas, df_efetivo_geral], ignore_index=True)
-df_busca = df_busca.drop_duplicates(subset=["MAT"])  # Duplicados por matrícula removidos
+# Normaliza colunas
+df_efetivo.columns = df_efetivo.columns.str.upper().str.strip()
+df_funcoes.columns = df_funcoes.columns.str.upper().str.strip()
 
-# Adiciona coluna 'STATUS_OCUPACAO' se não existir (padrão SEM BGO)
-if "STATUS_OCUPACAO" not in df_busca.columns:
-    df_busca["STATUS_OCUPACAO"] = "SEM BGO"
+# --- Exibe KPIs básicos ---
+st.subheader("✨ Indicadores Gerais")
+total_efetivo = len(df_efetivo)
+total_setores = df_efetivo["SETOR"].nunique() if "SETOR" in df_efetivo.columns else "-"
+col1, col2 = st.columns(2)
+col1.metric("Efetivo Atual", total_efetivo)
+col2.metric("Setores Existentes", total_setores)
 
-st.subheader("🔍 Busca Detalhada do Efetivo (Todos os militares)")
+st.divider()
 
-# Filtros opcionais
-busca = st.text_input("Buscar por nome, matrícula, nome de guerra ou setor:").upper()
-status_list = ["CLASSIFICADO", "VAGA CORRETA", "SEM BGO"]
-status_filtro = st.multiselect("Filtrar por status", status_list, default=status_list)
+# --- Exibe Efetivo por Setor (tabela) ---
+st.subheader("👥 Efetivo por Setor")
+if "SETOR" in df_efetivo.columns:
+    efetivo_setor = df_efetivo.groupby("SETOR")["NOME"].count().reset_index(name="Quantidade")
+    st.dataframe(efetivo_setor, use_container_width=True)
+else:
+    st.warning("Coluna 'SETOR' não encontrada nos dados do efetivo.")
 
-# Aplica filtros (se houver)
-df_mostrar = df_busca.copy()
-if busca:
-    df_mostrar = df_mostrar[
-        df_mostrar.apply(
-            lambda row: busca in row.get("NOME", "").upper() or
-                        busca in row.get("MAT", "").upper() or
-                        busca in row.get("N GUERRA", "").upper() or
-                        busca in row.get("LOTAÇÃO", "").upper() or
-                        busca in row.get("SETOR", "").upper(), axis=1)
+st.divider()
+
+# --- Gráfico de Efetivo por Posto/Graduação ---
+st.subheader("📊 Efetivo por Posto/Graduação")
+if "P/G" in df_efetivo.columns:
+    efetivo_grad = df_efetivo["P/G"].value_counts().reset_index()
+    efetivo_grad.columns = ["Posto/Graduação", "Quantidade"]
+    fig_grad = px.bar(efetivo_grad, x="Posto/Graduação", y="Quantidade", color="Posto/Graduação", title="Distribuição por Graduação")
+    st.plotly_chart(fig_grad, use_container_width=True)
+else:
+    st.warning("Coluna 'P/G' não encontrada nos dados do efetivo.")
+
+st.divider()
+
+# --- Busca Detalhada (com informações permitidas) ---
+st.subheader("🔎 Busca Detalhada do Efetivo (Privacidade Garantida)")
+busca_nome = st.text_input("Buscar por nome, posto/graduação, setor ou lotação:").upper()
+
+colunas_exibir = []
+for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "POSTO_GRAD_FUNCAO", "GRADUAÇÃO DA FUNÇÃO", "POSTO_GRAD_FUNÇÃO"]:
+    if col in df_efetivo.columns:
+        colunas_exibir.append(col)
+    elif col in df_funcoes.columns:
+        colunas_exibir.append(col)
+
+# Mescla informações da função ocupada (se disponível)
+if "NOME" in df_efetivo.columns and "NOME DE GUERRA" in df_funcoes.columns and "GRADUAÇÃO DA FUNÇÃO" in df_funcoes.columns:
+    df_efetivo = df_efetivo.merge(df_funcoes[["NOME DE GUERRA", "GRADUAÇÃO DA FUNÇÃO"]],
+                                  left_on="N GUERRA", right_on="NOME DE GUERRA", how="left")
+
+# Filtro por busca (nome, graduação, setor, lotação)
+if busca_nome:
+    df_filtrado = df_efetivo[
+        df_efetivo.apply(lambda row: any(busca_nome in str(row[c]).upper() for c in ["NOME", "P/G", "SETOR", "LOTAÇÃO"] if c in row), axis=1)
     ]
+else:
+    df_filtrado = df_efetivo.copy()
 
-if "STATUS_OCUPACAO" in df_mostrar.columns:
-    df_mostrar = df_mostrar[df_mostrar["STATUS_OCUPACAO"].isin(status_filtro)]
+# Exibe apenas colunas permitidas
+colunas_mostrar = [col for col in ["NOME", "P/G", "SETOR", "LOTAÇÃO", "GRADUAÇÃO DA FUNÇÃO"] if col in df_filtrado.columns]
+st.dataframe(df_filtrado[colunas_mostrar], use_container_width=True)
 
-# Colunas a exibir (ajuste conforme suas colunas)
-colunas_visiveis = [col for col in ["P/G", "NOME", "N GUERRA", "MAT", "CPF", "QUADRO", "LOTAÇÃO", "SETOR", "STATUS_OCUPACAO"] if col in df_mostrar.columns]
-df_exibir = df_mostrar[colunas_visiveis]
-
-# Exibição com AG-Grid (30 linhas/página)
-gb = GridOptionsBuilder.from_dataframe(df_exibir)
-gb.configure_pagination(paginationPageSize=30)
-grid_options = gb.build()
-AgGrid(df_exibir, gridOptions=grid_options, height=1000, theme="alpine")
-
-st.download_button("⬇️ Baixar lista completa (CSV)", df_exibir.to_csv(index=False), "efetivo_busca_detalhada.csv")
-
-st.caption("© Diretoria de Logística – PMAL | Busca Detalhada Efetivo")
+# Rodapé centralizado
+st.markdown("""
+    <div style="position: fixed; left: 0; bottom: 0; width: 100vw; background: rgba(255,255,255,0.0);
+    text-align: center; padding: 18px 0 10px 0; font-size: 1.1rem; color: #0A2342 !important;
+    font-weight: bold; letter-spacing: 1px; z-index: 999;">
+    Desenvolvido pela Secretaria - DLOG/PMAL | 2025
+    </div>
+""", unsafe_allow_html=True)
